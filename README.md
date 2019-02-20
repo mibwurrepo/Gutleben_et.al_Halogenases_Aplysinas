@@ -7,9 +7,8 @@ Below is a short descriptions of the files, more details can be found in Halogen
 
 *Complete workflow* 
 ---
-Halogenase_Diversity_Final_1.html -R Markdown file containing all details and analysis scripts used in this study. This includes R code as well as bash commands, used for data processing on a linux server. This document contains step-wise information on all other data files.
+Halogenase_Diversity_Final_1.Rmd -R Markdown file containing all details and analysis scripts used in this study. This includes R code as well as bash commands, used for data processing on a Linux server. This document contains step-wise information on all other data files.
 
-Halogenase_Diversity_Final_1.Rmd  -R Code used to generate  Halogenase_Diversity_Final_1.html
 
 ---
 
@@ -53,5 +52,5 @@ RAxML_bipartitions.halo_tree_db_raxml -Best-scoring ML tree with support values,
 
 ---
 ------
-All questions concerning this analysis can be directed at johanna.gutleben@wur.nl
+All questions or comments concerning this analysis can be directed at johanna.gutleben@wur.nl
 
