@@ -1,0 +1,2600 @@
+---
+title: "Diversity of tryptophan halogenases in sponges of the genus Aplysina"
+author: "Johanna Gutleben"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: united
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=9, fig.height=5, fig.align = "center")
+```
+
+# Abstract
+
+Marine sponges are a prolific source of novel enzymes with promising biotechnological potential. Especially halogenases, which are key enzymes in the production of brominated and chlorinated secondary metabolites that possess interesting pharmaceutical properties. In this study we used a PCR-based screening to simultaneously examine and compare the richness and diversity of putative tryptophan halogenase genes as well as the bacterial community structures of six Aplysina species from the Mediterranean and the Caribbean seas. We detected four phylogenetically diverse clades of putative tryptophan halogenase genes that were only distantly related to previously reported halogenases. While A. aerophoba harbored unique halogenase genes, the Caribbean species shared numerous halogenase phylotypes and exhibited highly similar microbiomes. By correlating halogenase gene abundance with bacterial abundances we could indicate that prominent sponge symbiotic bacteria are putative producers of these halogenases and may thus contribute to the chemical defense of their host.
+
+
+# Analysis of Halogenase sequencing data:
+
+Demultiplexed Pyrosequencing data of halogenase genes were deposited at the NCBI Sequence Read Archive under sample accession numbers SRR7853828 to SRR7853845.
+
+The complete workflow:
+
+	1. Subset mapping file to only the sponge samples. save as Aplysinas_halopyromap.xlsx
+	2. convert latitude longitude values to decimals 
+	3. copy-paste into Notepad++:  Aplysinas_halopyromap.txt
+	4. upload to linux server : /home/myfolder/Aplysina_halogenase
+	5. the files on the server are now:
+          H5UL8MC02.fna
+          H5UL8MC02.qual
+          H5UL8MC02.sff
+          Aplysinas_halopyromap.txt
+
+## 454 data analysis workflow (QIIME)
+
+Analysis is based on the [qiime tutorial for pyrosequencing data](http://qiime.org/1.2.1/tutorials/tutorial.html)
+
+ 1. Validate the mapping file:
+validate_mapping_file.py -m Aplysinas_halopyromap.txt -o mapping_info/
+
+-> no errors or warnings detected.  
+
+ 2. Demultiplexing: set to run 1-2-18: 17:30 
+```{r, eval=FALSE}
+split_libraries.py -m Aplysinas_halopyromap.txt -f H5UL8MC02.fna -q H5UL8MC02.qual -M 1 --reverse_primer_mismatches 1 -z truncate_only -o split_library_output/ -b 10
+```
+split_libraries.py removes the primers unless specified to keep primer with -k 
+
+[default parameters (minimum quality score = 25, minimum/maximum length = 200/1000, no ambiguous bases allowed) but one mismatch allowed in forward and reverse primer sequences]
+[-b 10 indicates lenght of barcodes]
+[-z truncate_only means that if the reverse primer (specified in the map file) is found everything after this (including the primer itself) is deleted from the sequence]
+-M, --max-primer-mismatch 
+
+Total number seqs written: 218257
+
+ 3. We skip the denoising step.
+ 
+ 4: identify chimeras
+```{r, eval=FALSE}
+identify_chimeric_seqs.py -m usearch61 -i split_library_output/seqs.fna --suppress_usearch61_ref -o usearch61_chimera_checking/
+```
+Output (amongst other files)
+chimeras.txt     5809 seqs          -> 2.78% of data are chimeras
+non_chimeras.txt      212448 seqs
+
+ 5: remove chimeric seqs
+    filter the seqs.fna file to remove the sequences identified as chimeras. 
+    create folder: chimera_free 
+```{r, eval=FALSE}    
+filter_fasta.py -f split_library_output/seqs.fna -o chimera_free/seqs_chimera_free.fna -s usearch61_chimera_checking/chimeras.txt -n
+```
+Result: **seqs_chimera_free.fna**
+
+***
+
+Continue with customized bash scripts
+
+ 6: count the number of sequences (by fasta headers ">") in the file:
+```{r, eval=FALSE}
+grep -o \> seqs_chimera_free.fna | wc -w                                  
+```
+
+wc -l     word count: print the newline counts    -w     print word counts
+number of sequences: 212448
+
+
+## Translate Halogenase gene sequences to protein sequences
+ 7: translate the seqs_chimera_free.fna file to the three forward reading frames
+
+[Galaxy](https://usegalaxy.org/) using the tool  [transeq](https://usegalaxy.org/?tool_id=toolshed.g2.bx.psu.edu%2Frepos%2Fdevteam%2Femboss_5%2FEMBOSS%3A+transeq101%2F5.0.0&version=5.0.0&__identifer=58t3u9ep1xk) to Translate nucleic acid sequences (Galaxy Version 5.0.0)
+
+Frames to translate: Forward three frames
+Code to use: Bacterial
+Change all STOP codon positions from the '*' character to 'X': i think YES
+Output file format: Fasta
+
+Result: Galaxy24-[transeq_on_data_22].fasta
+
+ 8: sort unique sequences, numerically, on column 1.
+```{r, eval=FALSE}
+grep -v ">" /Downloads/Galaxy24-[transeq_on_data_22].fasta  | sort | uniq -c
+grep -v ">" /Downloads/Galaxy24-[transeq_on_data_22].fasta  | sort | uniq -c | sort -nk1
+```
+ 9: wrote a script header_seq.py that separates the sequence headers from the amino acid sequence by tab.
+
+header_seq.py
+```{r, eval=FALSE}
+import sys
+
+header = ""
+seq = ""
+
+for index, line in enumerate(open(sys.argv[1])):
+	line = line.strip()
+	if ">" in line:
+		print(header, seq, sep="\t")
+		header = line
+		seq = ""
+	else:
+		seq += line
+```
+	
+```{r, eval=FALSE}	
+python3 header_seq.py Galaxy24-\[transeq_on_data_22\].fasta > translation.tsv
+```
+results in file **translation.tsv**
+
+ 10: removed all the lines that have a stop codon "X" in the amino acid sequence
+```{r, eval=FALSE}
+grep -v "\t.*X" translation.tsv > translation.nostop.tsv
+```
+results in file translation.nostop.tsv
+
+all the lines with a stop codon are in file translation.stop.tsv
+```{r, eval=FALSE}
+grep "\t.*X" translation.tsv > translation.stop.tsv
+```
+ 11: print sequences, the sample where they come from (beginning of fasta header) and occurence count into file  translation.sort.sample.seq.tsv 
+```{r, eval=FALSE}
+cat translation.nostop.tsv | awk '{print $1"\t_"$6}' | awk -F"_" '{print $1"\t"$4}' | sort | uniq -c > translation.sort.sample.seq.tsv
+```
+there are 122026 lines left
+
+ 12: remove all the sequences that occur only 1 or 2 times. left with 3 or more counts in file preMatrix.count.sample.sequence
+```{r, eval=FALSE}
+cat translation.sort.sample.seq.tsv | sort -k3 | awk '$1>2' > preMatrix.count.sample.sequence
+```
+that leaves 6050 sequences.
+
+ 13: make a script that creates a fasta file of unique sequences.
+ 
+createFasta.py
+```{r, eval=FALSE}
+for index, line in enumerate(open("uniqueSequences")):
+	print(">", index,"\n",line.strip(), sep="")
+```	
+```{r, eval=FALSE}
+python3 createFasta.py > uniqueSequences.fasta
+```
+
+#### Result files: 
+    preMatrix.count.sample.sequence
+    uniqueSequences.fasta
+
+***
+Then analysis continues in R
+
+## R Markdown: Structure and packages
+
+In this markdown i combine all the scripts, starting from the file with unique sequences.
+Workflow:
+
+1: take input files: unique sequences, pre-matrix: 
+2: delete sequences from the contaminated samples AA2 and Apfi3 
+3: cluster sequences by 95% sequence identity, keep the most abundant sequences.
+
+4: make the abundance matrix 
+5: make the fasta file with the sequences used for blasting against  
+    5.1. the halogenase database 
+    5.2. the entire uniprot  
+6: use the halogenase genes to build a tree   
+
+7: use the halogenase genes to run diversity analyses    
+    7.1. Alpha Diversity    
+    7.2  Beta Diversity     
+    7.3  Venn Diagram     
+  
+8: use the microbial data   
+    8.1  Alpha Diversity    
+    8.2  Beta Diversity     
+    8.3  Venn Diagram       
+
+Combine 7 und 8 in one plot   
+
+(optional: composition plot microbes)     
+
+9: make the co-correlations!  
+    9.1 heatmap matrix  
+
+***
+
+Check which directory is being used
+```{r check-directory, eval=FALSE}
+# setwd("D:/Aplysina454/Halogenase_Diversity_3_R") 
+getwd()
+```
+
+
+#### Loading the required packages
+
+```{r load-libraries, warning = FALSE, message = FALSE}
+
+library(reshape2)
+library(phyloseq)
+library(ggplot2)
+library(ape)
+library(Biostrings)
+library(RColorBrewer)
+library(scales)
+library(data.table)
+library(microbiome)
+library(plyr)
+library(dplyr)
+library(DT) #for interactive tables
+library(ggpubr)
+library(vegan)
+library(picante)
+library(stringr)
+library("Biostrings")
+library("seqRFLP")
+library(venneuler)
+library(pheatmap)
+library(broom)
+
+# set theme for plotting
+mytheme <- theme_bw() + theme(panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), panel.border = element_rect(colour = "black", fill=NA), axis.text = element_text(colour = "black"), strip.background = element_rect(colour = "black", fill = "white"))
+```
+
+This is for creating a matrix out of the list of sequences (preMatrix.count.sample.sequence) file, to remove contaminated samples and their sequences, and to save the abundance matrix.
+
+```{r make-abundance-matrix}
+
+# CREATES MATRIX FROM THREE COLUMNS
+# Using reshape2:
+data  = read.table(file = "preMatrix.count.sample.sequence")
+
+# make the matrix
+matrix = acast(data, V3~V2, value.var="V1")
+matrix[which(is.na(matrix))] = 0
+
+# check properties of matrix
+dim(matrix)
+
+# convert matrix to dataframe
+df_matrix <- as.data.frame(matrix)
+
+# rename the colnames to the consistent sample names:
+colnames(df_matrix) <- c("AAe1", "AAe2", "AAe3", "AAr1", "AAr2", "AAr3", "ACa1", "ACa2", "ACa3", "AFi1", "AFi2", "AFi3", "AFu1", "AFu2", "AFu3", "ALa1", "ALa2", "ALa3")
+
+# delete the column AAe2 and AFi3, the contaminated samples 
+matrix2 <- subset(df_matrix, select = -c(AAe2, AFi3))
+
+# make the sum of the column values of the samples only 
+matrix2$sum <- apply(matrix2[,c(2:16)], 1, function(x) sum(x))
+
+# delete rows for which sum = 0
+matrix3 <- subset(matrix2, sum > 0) 
+
+# how many sequences do i have left: sum(matrix3$sum) # 37374 reads
+
+# delete the sums column again from the dataframe
+matrix3 <- subset(matrix3, select = -c(sum))
+
+# dim(matrix3) 3653  sequences and 16 columns
+
+# check for duplicate sequences: 
+# length(unique(rownames(matrix3))) # 3653 so no duplicates in the sequences.
+
+# add a sequence identifier for each sequence: S0001 to S3653
+matrix3$sequence <- rownames(matrix3)
+rownames(matrix3) <- paste("S", str_pad(1:3653, 4, pad = "0"), sep = "")
+
+# export table with abundances
+write.csv(matrix3, "halogenase_abundance_matrix.csv")
+
+``` 
+
+
+Plot binary distance of the samples (binary = presence absence)
+
+```{r}
+# import abundance matrix
+matrix4 <- read.csv("halogenase_abundance_matrix.csv", row.names = 1)
+matrix4$sequence <- NULL
+
+# plot distances
+distance = dist(x = t(matrix4), method = "binary")
+hc = hclust(distance)
+
+# safe the plot
+pdf("./Figures/halogenases_binary_distance_plot.pdf", 7, 5)
+plot(hc)
+dev.off()
+
+plot(hc)
+```
+
+
+Export a fasta file so i can import it to the server to use uclust.
+
+```{r export-fasta,  results='hide'}
+
+matrix3 <- read.csv("halogenase_abundance_matrix.csv",  row.names = 1)
+fasta <- data.frame(matrix3$sequence)
+rownames(fasta) <- rownames(matrix3)
+
+# write fasta.
+dataframe2fas(fasta, file = "uniqueSequences3.fasta")
+dim(fasta)
+
+``` 
+
+***
+This part is done outside of R, in a Linux environment
+
+## BLAST unique protein sequences against UniProt database
+for finding the closest database entries and an assignment for the sequences.
+
+blast against entire uniprot with uniqueSequences3.fasta (8-4-18)
+
+command blast against uniprot db
+```{r, eval=FALSE}
+# call screen
+screen
+#make new window in screen 
+"Ctrl-a" "c"
+
+#command blast against uniprot db
+blastp -query uniqueSequences3.fasta  -num_threads 20 -out blastp3.output.txt -db /databases/swissprot/2018_03/uniprot_2018_03_sprot.fasta -outfmt "10 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore salltitles" -num_alignments 10
+
+# detach from screen
+"Ctrl-a" "d"
+
+# [detached from screen 21310.pts-0.*servername*]
+```
+
+## Cluster sequences by 95% identity (UCLUST)
+
+UCLUST generates clusters containing similar sequences. A similarity threshold is specified, say 90% identity. Each cluster has a representative sequence (its seed)
+
+First, sort sequences by length so that most appropriate seed seq for clustering is found before other members of cluster (sort by decreasing length).
+
+command sort
+```{r, eval=FALSE}
+uclust --sort uniqueSequences3.fasta --output sorted_uniqueSequences3.fasta
+```
+
+command clustering
+```{r, eval=FALSE}
+uclust --input sorted_uniqueSequences3.fasta --uc cluster_95_uniqueSequences3.uc --id 0.95
+```
+
+FILE conversion to fasta: convert UCLUST to FASTA format: seed and hits sequences
+
+command convert to fasta
+```{r, eval=FALSE}
+uclust --uc2fasta cluster_95_uniqueSequences3.uc --input sorted_uniqueSequences3.fasta --types SH --output SHseq_cluster_95_uniqueSequences3.fasta
+```
+Download all the results files to the R working directory:
+
+    cluster_95_uniqueSequences3.uc              # uclust output file: clusterered 95%identity
+    SHseq_cluster_95_uniqueSequences3.fasta     # file with sequences and 95% identity cluster information 
+    blastp3.output.txt                          # uniprot blastp result of uniqueSquences3
+
+***
+And now back to R:
+## Select representative sequences for clusters (most abundant)
+
+Select the most abundant sequences as reference sequence for the clusters, instead of the seed sequences.
+sum the abundances of the other sequences from the same cluster.
+
+```{r, select-the-most-abundant-sequences-for-clusters,  results='hide'}
+# read abundance data
+matrix4 <- read.csv("halogenase_abundance_matrix.csv", row.names = 1)
+
+# make a file with the sequences 
+seqs <- data.frame(matrix4$sequence)
+rownames(seqs) <- rownames(matrix4)
+
+# read fasta with cluster info
+SH95 <- readDNAStringSet("SHseq_cluster_95_uniqueSequences3.fasta", "fasta")
+
+# convert to dataframe
+SH95df <- as.data.frame(SH95)
+
+# split annotation column by separator
+SH95df1 <- data.frame(do.call('rbind', strsplit(as.character(rownames(SH95df)),'|',fixed=TRUE)))
+SH95df2 <- cbind(SH95df1,SH95df)
+rownames(SH95df2) <- SH95df2$X3
+
+# copy&rename the file with the abundance information
+abu= matrix4 
+
+#reformat a bit
+abu$Fasta_name <- rownames(abu)
+colnames(abu)[17] <- "Sequence"
+
+# Reorder the columns 
+abun <- abu[c("Fasta_name", "Sequence", "AAe1", "AAe3", "AAr1", "AAr2", "AAr3", "ACa1", "ACa2", "ACa3", "AFi1", "AFi2", "AFu1", "AFu2", "AFu3", "ALa1", "ALa2", "ALa3")]
+
+# the dataframe dfseq has the names of the gene and in column "x"the sequences  in X1 there is the cluster inf and in X2 the %identity to the seed. 
+dfseq=SH95df2 
+
+# order the dataframes the same way as the abundance table
+dfseq <- dfseq[ order(row.names(dfseq)), ]
+
+# check if the order of sequences is the same in the two input dataframes:
+rownames(abun)==rownames(dfseq) # all TRUE! :D
+```
+
+
+
+writing a loop to select the most abundant sequence per cluster as representative sequence
+```{r}
+###### writing a loop to select the most abundant sequence per cluster as representative sequence
+as.numeric(dfseq$X1)
+finalResult=NULL; finalRownames=NULL
+for (cl in levels(dfseq$X1) ) {
+  selected=rownames(dfseq)[which(dfseq$X1==cl)]  #selecte sequence in the cluster
+  abunsel=abun[selected,] #reduce abundace matrxi to the ones in the cluster
+  candidate=max(rowSums(abunsel[,3:18]))  #find the row with te highest rowsums. 
+  #testing if there are multiple candidates with same rowSum
+  if (sum(candidate==rowSums(abunsel[,3:18]))  > 0){  #there are multiple candidates we pick the longest seeuebces 
+    sel=which.max(nchar( as.character(abunsel[which(candidate==rowSums(abunsel[,3:18])), "Sequence"]))) #count characters in sequences
+    clusterRepresentative=rownames(abunsel)[which(candidate==rowSums(abunsel[,3:18]))][sel]   #select highest
+  } else {  #there is only one candidate
+    clusterRepresentative=which.max(rowSums(abunsel[,3:18]))
+      }
+  finalRownames=c(finalRownames,clusterRepresentative)
+finalResult=rbind(finalResult, c(as.numeric(cl), colSums(abunsel[,3:18]))) # sum up the abundances of the other sequences in the cluster
+
+}
+#make it pretty 
+colnames(finalResult)[1]="ClusterNumber"
+rownames(finalResult)=finalRownames
+
+# combine results in a table
+output= cbind(as.data.frame((finalResult)), abun[finalRownames,"Sequence"])
+output <- output[ order(row.names(output)), ]
+colnames(output)[18] <- "Sequence"
+
+# summarize how many sequences are inside each cluster
+clseqs <- dfseq %>% group_by(X1) %>% summarise(no_rows = length(X1))
+clseqs$X1 <- as.numeric(as.character(clseqs$X1))
+
+# sort cluster ids the same way as in output
+clseqs <- clseqs[order(match(clseqs$X1, output$ClusterNumber)),]
+# rename to Seqs/Cluster
+colnames(clseqs)[2] <- "Seqs/Cluster"
+
+# add Seqs/Cluster to the output
+output$Seqs_per_Cluster <- clseqs$`Seqs/Cluster`
+
+# write the table
+write.csv(output, "cluster95_mostabund.csv")   # change number depending on output file. 
+
+``` 
+
+plot some information on the clustering.
+
+```{r histogram of sequence length}
+
+# CHECK HISTOGRAM OF LENGTH OF SEQUENCES of cluster representative sequences.
+output2 <- output
+# change sequences to class character
+output2$Sequence <- lapply(output2$Sequence, as.character)
+
+#add column with number of amino acids of sequences.
+output2$length <- nchar(output2$Sequence)
+
+# sequences per cluster
+# mean(output2$Seqs_per_Cluster) # 1.9
+# max(output2$Seqs_per_Cluster) # 109
+# min(output2$Seqs_per_Cluster) # 1
+
+# plot and save sequence length and number of sequences per cluster
+pdf("./Figures/cluster95_information.pdf", 7, 5)
+attach(output2) %>% par(mfrow=c(1,2)) 
+hist(output2$length, xlab = "sequence length (aa)", main = "Histogram of seq length of cluster")
+plot(output2$Seqs_per_Cluster, xlab = "Cluster ID", ylab = "Sequences per cluster")
+dev.off()
+
+hist(output2$length, xlab = "sequence length (aa)", main = "Histogram of seq length of cluster")
+plot(output2$Seqs_per_Cluster, xlab = "cluster ID", ylab = "Sequences per cluster")
+``` 
+
+make the fasta file with the representative sequences for the clusters: **rep_seqs_cluster95.fasta** used for blasting against  
+    5.1. the halogenase database  
+    5.2. the entire uniprot  
+
+```{r make-representative-sequences-fasta-file-with-cluster95-sequences-for-blasting-against-uniprot-and-halogenase-db,  results='hide'}
+
+# read file with the highest abundant sequence as representative of the cluster
+output <- read.csv("cluster95_mostabund.csv", row.names = 1)
+
+# make dataframe for fasta file
+seqs_cl95 <- data.frame(output$Sequence)
+rownames(seqs_cl95) <- rownames(output)
+
+# write fasta.
+dataframe2fas(seqs_cl95, file = "rep_seqs_cluster95.fasta")
+dim(seqs_cl95)
+``` 
+
+***
+
+This part is outside R, in a bash environment on the server
+
+## BLAST cluster sequences against UniProt 
+
+Input file:  
+**rep_seqs_cluster95.fasta**
+
+command blast against UniProt Database
+```{r, eval=FALSE}
+#open screen
+screen -S uniprot_ref_seq_blast
+
+blastp -query rep_seqs_cluster95.fasta  -num_threads 20 -out blastp.rep_seqs_cl95.txt -db /databases/swissprot/2018_03/uniprot_2018_03_sprot.fasta -outfmt "10 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore salltitles" -num_alignments 10
+
+#detach from screen "Ctrl-a" "d"
+
+# [detached from screen 31598.uniprot_ref_seq_blast]
+```
+**Result file:** 
+blastp.rep_seqs_cl95.txt
+
+
+## BLAST against Halogenase database (manually curated)
+
+The **database** is here:
+./halogenase_database
+    halo_db1_uniprot.fasta    # fasta file of the entries
+    halo_db1_uniprot.tab      # file with the descriptions
+
+**Blastp** has to be done via [diamond implemented in Galaxy](https://usegalaxy.org/?tool_id=toolshed.g2.bx.psu.edu%2Frepos%2Fbgruening%2Fdiamond%2Fbg_diamond_makedb%2F0.8.24&version=0.8.24&__identifer=fd1mfo8twgh)  
+  1. upload database file (halo_db1_uniprot.fasta) via Get data  
+  2. build database  
+  3. upload fasta file with query sequences (rep_seqs_cluster95.fasta)  
+  4. use [Diamond alignment tool] (https://usegalaxy.org/?tool_id=toolshed.g2.bx.psu.edu%2Frepos%2Fbgruening%2Fdiamond%2Fbg_diamond%2F0.8.24&version=0.8.24&__identifer=ybhdnejiv0k)  
+ 
+**Job details:**
+Align amino acid query sequences (blastp)  
+Input query file in FASTA or FASTQ format  
+    rep_seqs_cluster95.fasta  
+Will you select a reference genome from your history..  
+    Use one from history  
+        Select ref database: diamond makedb on data1  
+Genetic code used for translation of query in BLASTX mode  
+    The Bacterial, Archaeal and Plant Plastid Code  
+Format of output file  
+    BLAST tabular  
+    Tabular fields:  
+       
+Query_Seq_ID  
+Subject_Seq_ID  
+%identical_matches  
+Alignment_length  
+Number_mismatches  
+Number_gap_openings  
+Start_of_alignment_in_query  
+End_of_alignment_in_query  
+Start_of_alignment_in_subject  
+End_of_alignment_in_subject  
+Expect_value  
+Bit_score  
+All_Subject_Title(s)  
+ 
+rest of options keep at default  
+except: 
+The maximum number of target sequences per query to keep alignments for
+10  
+Execute  
+
+Results file from rep_seqs_cluster95.fasta  
+  **halodb_rep_seqs_cl95.txt**  
+  
+
+## InterProScan: detect protein domains
+
+commands InterProScan:
+
+```{r, eval=FALSE}
+screen -S interpro_ref_seq_blast
+
+/programs/interproscan-5.28-67.0/interproscan.sh -f TSV -f HTML -i /home/myfolder/halo4/rep_seqs_cluster95.fasta -b /home/myfolder/interpro_rep_seqs_cluster95.tsv
+ 
+```
+
+Results file from rep_seqs_cluster95.fasta 
+  **interpro_rep_seqs_cluster95.tsv**
+
+
+## Results:  BLASTp unique sequences against UniProt database
+
+the result from uniqueSequences3: 
+  blastp3.output.txt  # results of uniqueSequences3 blastp against uniprot db. 
+  
+Hits2 has only the blast results of the cluster95 representative sequences.  
+
+the plots contain only significant (Evalue <0.005) hits against "halogenase" entries from UniProt.
+
+```{r uniqueSequences3-uniprot-results-entire-uniprot}
+
+ # read hit table of uniprot blast results: already added column headers
+hits <- read.delim("blastp3.output.txt", header=FALSE, sep=",")
+
+# merge the two description columns (V13, V14) and delete V14 (there were commas in the desciption column)
+hits$V13 <- paste(hits$V13, hits$V14, sep=",")
+hits$V14 <- NULL
+colnames(hits) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore", "salltitles")
+
+# I keep only the best hit (the first hit), which has the highest bitscore 
+# Remove duplicates from hits based on qseqid columns
+hits1 <- hits[!duplicated(hits$qseqid), ]
+head(hits1)
+
+# dim(hits1) # 3215 sequences
+
+# dim(fasta) # the object used to build uniqueSequences3 # 3653 sequences
+
+H <- 3215/3653
+```
+
+ out of all uniqueSequences3, `r H*100`% hits: have a hit in uniprot.
+
+```{r}
+# subset this table based on the cluster representative sequences.
+hits2 <- subset(hits1, qseqid %in% rownames(output))
+# dim(hits2) # 1654
+
+1654/1918 # 86.24% hits: 1918 clusters, 1654 hits. of the cluster sequences, this ~88% hit ratio stays the same.
+
+# subset table based on halogenase in description column
+hits3 <- hits2[ grep("halogenase", hits2$salltitles) , ]  
+
+hits2$pident <- as.numeric(as.character(hits2$pident))
+# median(hits2$pident) # 42.308
+# mean(hits2$pident) # 43.98
+boxplot(hits2$pident)
+```
+
+The average percent identity to hits in the UniProt database is around 40%. 
+Also, there are only 40 cluster sequences that have a match at all with an evalue <0.001.
+```{r}
+
+# subset table based on evalue <0.001 
+hits4 <- hits3[ which(hits3$evalue < 0.001), ]
+# dim(hits4) # 40
+
+# check %Identity and bitscores
+hits4$pident <- as.numeric(as.character(hits4$pident))
+# max(hits4$pident) # 44.4%
+# mean(hits4$bitscore) # 56
+
+# summarize the results based on the description
+hits4_classes <- hits4 %>% group_by(salltitles) %>% summarise(no_seqs = length(sseqid), pident_min = min(pident), pident_max = max(pident), bitscore_min = min(bitscore), bitscore_max = max(bitscore))
+# 2 entries
+
+
+# plot % identity and evalue
+pdf("./Figures/cluster95_uniprot_hits.pdf", 7, 5)
+attach(hits4)
+par(mfrow=c(1,3)) 
+plot(hits4$evalue, ylab = "E-value", xlab = "list of uniprot hits", main = "E-values of Cluster hits")
+plot(hits4$pident, xlab="list of uniprot hits", ylab="% sequence identity", main = "Distribution of %ID")
+plot(hits4$bitscore, xlab="list of uniprot hits", ylab="bitscore", main = "Distribution of Bitscores")
+dev.off()
+
+plot(hits4$evalue, ylab = "E-value", xlab = "list of uniprot hits", main = "E-values of Cluster hits")
+plot(hits4$pident, xlab="list of uniprot hits", ylab="% sequence identity", main = "Distribution of %ID")
+plot(hits4$bitscore, xlab="list of uniprot hits", ylab="bitscore", main = "Distribution of Bitscores")
+
+``` 
+The percent sequence identity and bitscores are all very low when blasting the cluster sequences to the entire uniprot database.  
+
+***
+
+## Results:  BLASTp of representative cluster sequences against **Halogenase database**
+
+
+the result file derived from rep_seqs_cluster95.fasta :   
+  **halodb_rep_seqs_cl95.txt**
+  
+
+```{r uniqueSequences3-uniprot-results}
+
+ # read hit table of halodb blast results:
+halohits <- read.delim("halodb_rep_seqs_cl95.txt", header=FALSE, sep="\t")
+
+# add column names
+colnames(halohits) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore", "salltitles")
+
+# I keep only the best hit (the first hit), which has the highest bitscore 
+# Remove duplicates from halohits based on qseqid columns
+halohits1 <- halohits[!duplicated(halohits$qseqid), ]
+
+# dim(halohits1)
+# 86 sequences
+```
+
+`r (86/1918)*100`% halohits: 1918 clusters, 86 halohits.
+
+```{r}
+# subset table based on halogenase AND evalue < 0.001
+# subset table based on evalue <0.001 
+halohits2 <- halohits1[ which(halohits1$evalue < 0.001), ]
+# dim(halohits2) # 86
+
+
+# check %Identity and bitscores
+halohits2$pident <- as.numeric(as.character(halohits2$pident))
+# max(halohits2$pident) # 100%
+# min(halohits2$pident) # 32.9%
+# mean(halohits2$bitscore) # 172.8
+
+
+# summarize the results in a table
+halohits2_classes <- halohits2 %>% group_by(salltitles) %>% summarise(no_clusters = length(sseqid), pident_min = min(pident), pident_max = max(pident), bitscore_avg = mean(bitscore))
+halohits2_classes$bitscore_avg <- round(halohits2_classes$bitscore_avg)
+
+# reformat table
+# split annotation column by separator
+halohits3_classes <- data.frame(do.call('rbind', strsplit(as.character(halohits2_classes$salltitles),'|',fixed=TRUE)))
+halohits4_classes <- data.frame(do.call('rbind', strsplit(as.character(halohits3_classes$X3),'OS=',fixed=TRUE)))
+halohits5_classes <- data.frame(do.call('rbind', strsplit(as.character(halohits4_classes$X2),'GN=',fixed=TRUE)))
+# remove "PE=..."
+halohits5_classes$X2 <- sub(' PE=4 SV=1*', '', halohits5_classes$X2) 
+halohits5_classes$X1 <- sub(' PE=4 SV=1*', '', halohits5_classes$X1)
+# remove everything before first empty space
+halohits5_classes$X3 <- sub(".*? (.+)", "\\1", halohits4_classes$X1)
+# Replace "Tryptophan halogenase" with "TH" and  "Tryptophan halogenase (Fragment)" with "THf"
+halohits5_classes$X4 <- sub('Tryptophan halogenase', 'TH', halohits5_classes$X3)
+halohits5_classes$X4[halohits5_classes$X4=="TH (Fragment) "] <- "THf "
+
+
+# combine results in table
+table1 <-  data.frame(halohits2_classes$no_clusters, halohits3_classes$X2, halohits5_classes$X4, halohits5_classes$X1, halohits2_classes$pident_min, halohits2_classes$pident_max, halohits2_classes$bitscore_avg)
+
+# rename columns
+colnames(table1) <- c("No. of clusters", "UniProt accession", "Protein name", "Organism", "%ID min.", "%ID max.", "Bitscore avg.")
+
+# sort by number of sequences
+table2 <- table1[ order(-table1[,1]), ]
+
+# export table
+write.csv(table2, "./Tables/results_halodb-hits-repseq_cluster95.csv", row.names=FALSE)
+
+# dim(table2) # 16 entries
+```
+Table 2. Hit table (blastp) of sequences aligned against the manually curated halogenase protein database. *TH: Tryptophan halogenase, THf: Tryptophan halogenase (Fragment). %ID is given as % amino acid sequence identity.
+
+
+```{r}
+# plot % identity and evalue
+pdf("./Figures/cluster95_halodb_hits.pdf", 7, 5)
+attach(halohits2)
+par(mfrow=c(1,3)) 
+plot(halohits2$evalue, ylab = "E-values of Cluster hits", xlab = "list of halodb hits", main = "E−values of Cluster hits")
+plot(halohits2$pident, xlab="list of halodb hits", ylab="% sequence identity", main = "Distribution of %ID")
+plot(halohits2$bitscore, xlab="list of halodb hits", ylab="bitscore", main = "Distribution of Bitscores")
+dev.off()
+
+plot(halohits2$evalue, ylab = "E-values of Cluster hits", xlab = "list of halodb hits", main = "E−values of Cluster hits")
+plot(halohits2$pident, xlab="list of halodb hits", ylab="% sequence identity", main = "Distribution of %ID")
+plot(halohits2$bitscore, xlab="list of halodb hits", ylab="bitscore", main = "Distribution of Bitscores")
+``` 
+
+When blastp-ing the halogenases against the halogenase database, i get much higher % sequence identity as well as much larger bitscores. 
+
+Reformat the complete table to make a proper "taxonomy table" for later use
+
+```{r}
+
+# reformat complete halodb hits table
+# halohits2
+
+# split annotation column by separator
+halohits3 <- data.frame(do.call('rbind', strsplit(as.character(halohits2$salltitles),'|',fixed=TRUE)))
+halohits4 <- data.frame(do.call('rbind', strsplit(as.character(halohits3$X3),'OS=',fixed=TRUE)))
+halohits5 <- data.frame(do.call('rbind', strsplit(as.character(halohits4$X2),'GN=',fixed=TRUE)))
+
+# remove "PE=..." and empty columns without gene name
+halohits5$X2 <- sub(' PE=4 SV=1*', '', halohits5$X2) 
+halohits5$X1 <- sub(' PE=4 SV=1*', '', halohits5$X1) 
+halohits5$X2 <- sub('uncultured organism', '', halohits5$X2) 
+halohits5$X2 <- sub('Psychrobacter sp. D8', '', halohits5$X2) 
+halohits5$X2[halohits5$X2==""] <- "NA"
+
+# remove everything before first empty space
+halohits5$X3 <- sub(".*? (.+)", "\\1", halohits4$X1)
+# Replace "Tryptophan halogenase" with "TH" and  "Tryptophan halogenase (Fragment)" with "THf"
+halohits5$X4 <- sub('Tryptophan halogenase', 'TH', halohits5$X3)
+halohits5$X4[halohits5$X4=="TH (Fragment) "] <- "THf "
+
+# combine results in table
+halox <-  data.frame(halohits5$X4, halohits5$X1, halohits5$X2, halohits3$X2)
+
+# rename columns
+colnames(halox) <- c("Protein name", "Organism", "Gene name", "UniProt accession")
+
+# make dataframe 
+halo <- cbind(halox, halohits2)
+rownames(halo) <- halo$qseqid
+
+write.csv(halo, "./Tables/halodb-hits_repseq_cl95.csv")
+
+```
+
+***
+## Results: InterProScan detection of protein domains 
+
+Having a look at the Interproscan results to investigate if halogenase domains can be detected for the amplicons  
+
+in the file i first manually added column headers using Notepad++.
+
+Protein_Accession	Sequence_MD5_digest	Sequence_Length	Analysis	Signature_Accession	Signature_Description	Start_Location	Stop_location	E-value_Score	Status	Date	InterPro_annotations_accession	InterPro_annotations_description
+
+```{r InterProScan}
+# read the InterProScan file. ATTENTION: use fill=TRUE because of empty columns in the data.
+int <- read.table("./InterProScan/interpro_rep_seqs_cluster95.tsv", sep="\t", header=TRUE, fill = TRUE)
+
+# Fill empty Signature Descriptions with NA
+int$Signature_Description[int$Signature_Description==""] <- "NA"
+
+# summarize the results based on the Signature_Description
+int_sum <- int %>% group_by(Signature_Description) %>% summarise(Seqs = length(Protein_Accession))
+int_sum2 <- as.data.frame(int_sum)
+# 84 sequences have Tryptophan halogenase as Signature Description
+
+# summarize based on InterPro_annotations_description
+int_sum3 <- int %>% group_by(InterPro_annotations_description) %>% summarise(Seqs = length(Protein_Accession))
+# FAD/NAD(P)-binding domain superfamily: 137
+# Flavin-dependent halogenase: 84
+
+# subset table based on halogenase in description column
+int_sub <- int[ grep("Tryptophan halogenase", int$Signature_Description) , ]
+rownames(int_sub) <- int_sub$Protein_Accession
+int_sub <- int_sub[ order(row.names(int_sub)), ]
+
+# compare the halogenase database hits with the interpro domains
+
+# subset this table based on the sequences that are NOT hits in the halogenase database.
+not <- subset(int_sub, !(rownames(int_sub) %in% halo$qseqid))
+# 0 rows: all sequences that had a hit in halo db also had a hit in InterProScan.
+
+```
+all sequences that had a hit in halo db also had a hit in InterProScan.
+```{r}
+# the sequences that had a hit in the halogenase database but NOT in InterProScan
+not2 <- subset(halo, !(rownames(halo) %in% rownames(int_sub)))
+# 2 sequencs: S1691 and S1792, both short.
+
+# read file with sequences
+fasta_cl <- read.csv("cluster95_mostabund.csv", row.names = 1)
+
+#subset to the two sequences without InterPro result:
+not2_seq <- subset(fasta_cl, rownames(fasta_cl) %in% rownames(not2))
+# change sequences to class character
+not2_seq$Sequence <- lapply(not2_seq$Sequence, as.character)
+not2_seq$nchar <- nchar(not2_seq$Sequence)
+not2_seq$nchar # the sequences are long (148aa) and have a 100% match to Psychrobacter sp THf, but alignment is very short (46 and 92aa for S1691 and S1792 respectively)
+
+# summarize InterProScan results
+int_sub_sum <- int_sub %>% group_by(Signature_Description) %>% summarise(Seqs = length(Protein_Accession))
+int_sub_sum
+
+```
+
+*** 
+
+# Phylogenetic Tree
+
+## Download reference sequences 
+
+Pasted the accessions of the 16 matches from the halodb in the [UniProt Batch Retrieval](https://www.uniprot.org/uploadlists/) website.
+
+use these download fields
+
+"Entry"         "Protein.names" "Organism"      "Gene.names"    "Sequence"      "Status"       
+
+```{r}
+download <- table2$`UniProt accession`
+levels(download)
+
+``` 
+
+
+Downloaded the **16 Matches** entry file with the gene annotations and the sequences:
+for Tree/matches.txt
+
+Downloaded **4 References** sequences, SwissProt-reviewed, well characterized Flavin-dependent Halogenases
+for Tree/references.txt
+
+Downloaded **18 Ozturk (2013)** sequences from [Ozturk 2013](https://www.ncbi.nlm.nih.gov/pubmed/24071658): 
+for Tree/ozturk.txt
+
+Also selected **5 Outgroup** sequences in UniProt:
+for Tree/outgroups.txt
+
+
+Now make a fasta file with the accession numbers as fasta names for the matches-sequences, and combine it with the other references and outgroups
+```{r}
+# read file with the matches sequences
+matches <- read.delim("./for Tree/matches.txt")
+matches$Status <- NULL # because all of them are reviewed
+
+
+# read file with outgroup sequences
+references <- read.delim("./for Tree/references.txt")
+references$Status <- NULL # because all of them are reviewed
+
+# read file with the ozturk sequences
+ozturk <- read.delim("./for Tree/ozturk.txt")
+ozturk$Status <- NULL
+
+# read file with the outgroups sequences
+outgroups <- read.delim("./for Tree/outgroups.txt")
+outgroups$Status <- NULL
+
+# create vector with outgroup sequences.
+og <- outgroups$Entry
+
+# merge all refs and outgroups
+out <- rbind(matches, references, ozturk, outgroups)
+
+# find duplicate Accession or sequences
+dup <- out[duplicated(out$Entry),]
+
+# Remove duplicates based on Entry columns
+out2 <- out[!duplicated(out$Entry), ]
+# dim(out2)  # 39 sequences
+
+write.csv(out2, "./for Tree/outgroups_refs_matches_ozturk_db.csv")
+
+``` 
+
+make a fasta file with only the sequences that had a hit in the halogenase database.
+
+```{r make-fasta-of-halo-hits}
+
+fasta_cl <- read.csv("cluster95_mostabund.csv", row.names = 1)
+
+# subset this table based on the sequences that had hits in the halogenase database.
+fasta_hits <- subset(fasta_cl, rownames(fasta_cl) %in% rownames(halo))
+# dim(fasta_hits) # 86
+
+# merge the dataframes
+colnames(halo)[1:4] <- c("Protein.name", "Organism", "Gene.name", "UniProt.accession")
+halo_fasta <- cbind(halo, fasta_hits)
+halo_fasta$Entry <- rownames(halo_fasta)
+halo_fasta$Entry<- as.factor(halo_fasta$Entry)
+halo_fasta2 <- data.table(halo_fasta$Entry, halo_fasta$Protein.name, halo_fasta$Organism, halo_fasta$Gene.name, halo_fasta$Sequence)
+colnames(halo_fasta2) <- colnames(matches)
+
+all_halo <- cbind(halo, halo_fasta2)
+
+write.table(all_halo, "./Tables/halo_annotation_sequence.csv")
+
+# to check the length of the sequences
+fasta_for_tree <- data.frame(fasta_hits$Sequence)
+rownames(fasta_for_tree) <- rownames(fasta_hits)
+fasta_for_tree1 <- fasta_for_tree
+# change sequences to class character
+fasta_for_tree1$fasta_hits.Sequence <- lapply(fasta_for_tree1$fasta_hits.Sequence, as.character)
+fasta_for_tree1$nchar <- nchar(fasta_for_tree1$fasta_hits.Sequence)
+
+#check the shortest sequence 
+min(fasta_for_tree1$nchar) # 67 aa. it's sequence S2095. one of 7 cluster seqs that hit to TH Dehalococcoidales bacterium CL877_08920 A0A2E9M8J4. the rest of all the sequences is > 100 Aa. i keep this one as well.
+
+hist(fasta_for_tree1$nchar, main="distribution of sequence length")
+
+``` 
+
+write all the information on the references, sequences and outgroups into one file
+```{r,  results='hide'}
+# combine the halaogenase sequences and all the outgroups 
+tree_db <- rbind(halo_fasta2, out2)
+
+# find duplicate Accession or sequences
+dup2 <- tree_db[duplicated(tree_db$Sequence),] # no duplicate sequences
+dim(tree_db)
+
+# export this table as tree database
+write.csv(tree_db, "./for Tree/tree_database.csv", row.names = FALSE)
+
+# write tree database fasta.
+tree_db_fasta <- data.frame(tree_db$Entry, tree_db$Sequence)
+dataframe2fas(tree_db_fasta, file = "./for Tree/tree_db.fasta")
+dim(tree_db_fasta)
+
+``` 
+
+*** 
+Outside R, using online tools:
+
+## Align sequences (ClustalW)
+
+ Aligning the fasta file with ClustalW for building the tree
+
+Uploaded **tree_db.fasta** to [Galaxy](https://usegalaxy.org/)
+Align sequences with Tool ClustalW multiple sequence alignment program for DNA or proteins (Galaxy Version 0.1)  
+Data Type: Protein sequences  
+Output alignment format: Phylip format  
+Output Order: Aligned  
+Output complete alignment  
+
+download file **Galaxy129-[tree_db_align_output.phylip].phylip** 
+
+location:
+./for Tree
+
+Open and visualize the alignment in [Jalview](http://www.jalview.org/)
+
+#### Trim the alignment to keep only the amplicon regions.
+
+In the beginning, delete everything before the primer motif: **GVGEAT**  
+In the end, delete everything after the last available motif **DLFV**, the longest in the amplicons, which is part of the rev. primer motif: **DLFV**DCSG
+
+manually edit the alignment. 
+
+export it to phylip format. WATCH OUT! Jalview doesn't put a space in between the SequenceID and the sequence. if there's no space, RaXML will give an error.
+In my case i manually added a space in between SeqID and sequence with Notepad++. Saved as **Galaxy_tree_aln.phylip**
+
+
+## Build phylogenetic tree with outgroups (RaXML)
+
+RaXML is installed on a linux server environment.
+
+```{r, eval=FALSE}
+#call screen
+screen -S Raxml
+
+#call raxml command
+raxmlHPC -f a -x 12345 -p 12345 -# 100 -m PROTGAMMAWAG -o P32370,Q56691 -s Galaxy_tree_aln.phylip -n halo_tree_db_raxml -T 20
+
+WARNING, outgroups are not monophyletic, using first outgroup "P32370"
+from the list to root the tree!
+
+“Ctrl-a” “d”    # detach from the screen
+# [detached from 15919.Raxml]
+
+ screen -r Raxml      # reattach to screen
+```
+
+Found 1 tree in File **RAxML_bestTree.halo_tree_db_raxml**
+
+Program execution info written to /home/myfolder/halo5/RAxML_info.halo_tree_db_raxml  
+All 100 bootstrapped trees written to: /home/myfolder/halo5/RAxML_bootstrap.halo_tree_db_raxml  
+
+Best-scoring ML tree written to: /home/myfolder/halo5/RAxML_bestTree.halo_tree_db_raxml  
+
+Best-scoring ML tree with support values written to: /home/myfolder/halo5/RAxML_bipartitions.halo_tree_db_raxml  
+
+Best-scoring ML tree with support values as branch labels written to:   /home/myfolder/halo5/RAxML_bipartitionsBranchLabels.halo_tree_db_raxml  
+
+Overall execution time for full ML analysis: 22075.920816 secs or 6.132200 hours or 0.255508 days  
+
+copy the tree files to 
+
+./Tree
+
+***
+back to R:  
+
+## Build annotation files for tree visualization (iTOL)
+
+#### build information files for iTol Tree
+
+First, build a file with all the information on the sequences, that had a hit in the halogenase database.
+```{r}
+# the file with the halo hits sequences, sorted out. 
+halo <- read.csv("./Tables/halodb-hits_repseq_cl95.csv", row.names=1)
+
+# the abundance table with the representative cluster sequences.  
+output <- read.csv("cluster95_mostabund.csv", row.names=1)  
+
+# NOW: subset the output abundance table to only the halo sequences. delete the rest of the reads (?)
+hal <- subset(output, rownames(output) %in% rownames(halo))
+
+# merge subset with the reference sequences (out2)
+hal2 <- cbind(hal, halo)
+
+#insert  column with length of the sequence
+#  output2 there sequence lengths was calculated
+l <- subset(output2, rownames(output2) %in% rownames(halo))
+#add column with number of amino acids of sequences.
+hal2$Seqs_length <- l$length
+# check if the alignment length is the same as the total sequence length: in most cases FALSE.
+hal2$Seqs_length==hal2$length
+
+# file with all information on the cluster halodb hits: 
+write.csv(hal2, "halo_hits_annot_abundance.csv")
+
+```
+
+
+calculate relative abundance 
+```{r}
+# calculate relative abundance 
+#subset to the sample abundance data
+ha <- subset(hal2)[2:17]
+# convert to matrix
+ha2 <- as.matrix(ha)
+
+# transform
+ha3 <- t(ha2)
+# divide by the rowSums
+ha4 <- ha3/rowSums(ha3) # the same function on colSums gives weird results so it has to be a bit complicated here.
+rowSums(ha4)
+# transform back 
+ha5 <- t(ha4)
+colSums(ha5) # 1
+
+# merge relative abundance and halo db hits annotations
+ha6 <- cbind(ha5, halo)
+#add column with number of amino acids of sequences.
+ha6$Seqs_length <- l$length
+ha6$Seqs_per_Cluster <- hal2$Seqs_per_Cluster
+
+# save relative abundance and cluster halodb hits
+write.csv(ha6, "halo_hits_annot_relabund.csv")
+
+```
+
+
+### Relative abundance stacked bars files (for iTOL)
+
+go to [iTOL](https://itol.embl.de/login.cgi) and make an account. 
+
+in the tab **My Trees**, upload the tree file. 
+RAxML_bipartitions.halo_tree_db_raxml 
+
+
+#### relative abundance stacked bars
+make a dataframe and fill with 0 for the relative abundance of reference and outgroup sequences
+merge with the sequence count of the halogenase genes
+sum the sequence counts for the sponge replicates
+calculate relative abundance of the sequence count sums of the replicates
+
+```{r}
+# combine the halaogenase sequences and all the outgroups 
+# merge the relative abundance dataframe and add 0 for the reference sequences
+# reference sequences:
+# out2
+rownames(out2) <- out2$Entry
+
+# the halo sequences with sequences counts:
+# hal2
+
+# make a matrix filled with 0 for the relative abundance of the reference sequences.
+x <- matrix(0, nrow = nrow(out2), ncol =16)
+x <- as.data.frame(x)
+rownames(x) <- rownames(out2)
+colnames(x) <- c("AAe1", "AAe3", "AAr1", "AAr2", "AAr3", "ACa1", "ACa2", "ACa3", "AFi1", "AFi2", "AFu1", "AFu2", "AFu3", "ALa1", "ALa2", "ALa3")
+
+# merge the dataframes
+y <- cbind(x,out2)
+
+# make dataframe including the reference sequences 
+z <- intersect(colnames(y), colnames(hal2))
+annot <- rbind(subset(hal2, select = z), subset(y, select = z))
+
+# sum the number of reads for the sponge replicates
+annot2  = data.frame(matrix("", ncol = 0, nrow = 125))  
+annot2$Aae <- rowSums(annot[, c(1, 2)])
+annot2$AAr <- rowSums(annot[, c(3, 4,5)])
+annot2$ACa <- rowSums(annot[, c(6, 7,8)])
+annot2$AFi <- rowSums(annot[, c(9,10)])
+annot2$AFu <- rowSums(annot[, c(11, 12,13)])
+annot2$ALa <- rowSums(annot[, c(14, 15,16)])
+rownames(annot2) <- rownames(annot)
+
+# calculate relative abundance 
+# convert to matrix
+annot3 <- as.matrix(annot2)
+# transform
+annot4 <- t(annot3)
+# divide by the rowSums
+annot5 <- annot4/rowSums(annot4) # the same function on colSums gives weird results so it has to be a bit complicated here.
+# transform back 
+annot6 <- t(annot5)
+colSums(annot6) # 1
+
+# save as relative abundance annotations for the tree
+write.table(annot6, "./Tree/itol/relab.txt", sep="\t",  quote = FALSE)
+
+``` 
+
+
+to finalize the file for itol:
+
+go to [itol help page](https://itol.embl.de/help.cgi#datasets) and download **Template file: dataset_multibar_template.txt**
+
+in Notepad++, fill in required data:
+
+SEPARATOR TAB  
+FIELD_COLORS	#FFF316	#FF8C11	#FF2111	#21FFF3	#4DD110	#0007EF  
+FIELD_LABELS	AAe	AAr	ACa	AFi	AFu	ALa  
+DATA  Content of relab.txt  
+
+save as relab_aplysinas1.txt  
+
+drag-drop into itol window.
+
+```{r}
+SpongeList <- c("AAe", "AAr", "ACa", "AFi", "AFu", "ALa")
+Colors <- c("#FFF316", "#FF8C11", "#FF2111", "#21FFF3", "#4DD110", "#0007EF")
+
+# To look at colors
+showpanel <- function(Colors){
+  image(matrix(1:length(Colors), ncol=1),
+        col=Colors, xaxt="n", yaxt="n", xlab = "A. aerophoba,     A. archeri,     A. cauliformis,     A. fistularis,     A. fulva,     A. lacunosa")}  
+showpanel(Colors)
+```
+The sponge species in this workflow:
+A. aerophoba
+A. archeri
+A. cauliformis
+A. fistularis
+A. fulva
+A. lacunosa
+
+#### for the iToL labels of outgroups, matches and reference sequences
+```{r}
+
+# for the annotations:
+matches$Type <- "m"
+references$Type <- "r"
+ozturk$Type <- "o"
+outgroups$Type <- "outgroup"
+
+# reference sequences: merge all refs and outgroups
+out_ref <- rbind(matches, references, ozturk, outgroups)
+
+# Remove duplicates based on Entry columns
+out_ref <- out_ref[!duplicated(out_ref$Entry), ]
+
+# clean up the table a bit
+# Replace "Tryptophan halogenase" with "TH" and  "Tryptophan halogenase (Fragment)" with "THf"
+out_ref$Protein.names <- sub('Tryptophan halogenase', 'TH', out_ref$Protein.names)
+out_ref$Protein.names <- sub('tryptophan halogenase', 'TH', out_ref$Protein.names)
+# replace "uncultured microorganism" with "unc. microorganism" 
+out_ref$Organism <- sub('uncultured microorganism', 'unc. microorganism', out_ref$Organism)
+out_ref$Organism <- sub('Lechevalieria aerocolonigenes (Nocardia aerocolonigenes) (Saccharothrix aerocolonigenes)', 'Lechevalieria aerocolonigenes', out_ref$Organism)
+# remove stuff after bracket in Protein.names
+out_ref$Protein.names <- gsub("\\s*\\([^\\)]+\\)","",as.character(out_ref$Protein.names))
+out_ref$Organism <- gsub("\\s*\\([^\\)]+\\)","",as.character(out_ref$Organism))
+
+# make description by pasting the columns
+out_ref1 <- data.frame(paste(out_ref$Protein.names, "; ", out_ref$Organism, " (", out_ref$Entry, ")", sep=""))
+rownames(out_ref1) <- out_ref$Entry
+
+# save as labels for the tree
+write.table(out_ref1, "./Tree/itol/labels.txt", sep="\t",  quote = FALSE, col.names = FALSE)
+
+```
+
+to finalize the file for itol:
+
+go to [itol help page](https://itol.embl.de/help.cgi#datasets) and download **Template file: labels_template.txt**
+
+in Notepad++, copy the content of labels.txt under DATA 
+save as   labels1.txt
+drag-drop into itol window.
+save changes. 
+
+```{r}
+
+# format the sequences for the tree
+# matches: BOLD
+# color the background of:
+# references: light green rgba(204, 235, 117, 0.5)
+# ozturks crambe: coral RGB:  rgba(255,131,98,0.3)
+# outgroup: white: 
+
+# make dataframe with Entry, label_background and Type
+cols <- data.frame(out_ref$Entry, "label_background", out_ref$Type)
+cols$Font <- NA
+
+
+# matches: 
+# replace value in dataframe based on other column
+# convert factor to character
+cols$out_ref.Type <- as.character(cols$out_ref.Type)
+cols$X.label_background. <- as.character(cols$X.label_background.)
+cols$X.label_background.[cols$out_ref.Type == "m"] <- "label"
+
+
+# fill Font column with bold for m
+cols$Font[cols$out_ref.Type == "m"] <- "bold"
+cols$out_ref.Type <- sub('m', 'rgba(0, 0, 0, 1.0)', cols$out_ref.Type)
+
+# references
+cols$out_ref.Type[cols$out_ref.Type == "r"] <- "rgba(204,235,117,0.5)"
+
+# Ozturk
+cols$out_ref.Type[cols$out_ref.Type == "o"] <- "rgba(255,131,98,0.3)"
+
+#outgroup
+cols$out_ref.Type[cols$out_ref.Type == "outgroup"] <- "rgba(255,255,255,1.0)"
+
+# save as colors for the tree
+write.table(cols, "./Tree/itol/colors.txt", sep="\t",  quote = FALSE, col.names = FALSE, row.names = FALSE, na = "")
+
+```
+
+Paste the content of colors.txt into the [colors_styles template](https://itol.embl.de/help/colors_styles_template.txt), save as colors1.txt and upload to iTOL.
+
+Further prettification interactively on iTOL:
+
+manually selecting distinct clades of halogenase sequences. assigning 4 different light grey shades.
+
+```{r}
+# select four shades of grey to color clades (manually in iTOL)
+shadesOfGrey <- colorRampPalette(c("grey85", "grey96"))
+shadesOfGrey(4)
+
+```
+## Phylogenetic Tree Figure
+
+download tree: /Tree/itol/Tree 3rd try.png and /Tree/itol/Tree 3rd try.pdf
+Manually edited using Adobe Acrobat
+saved as: Tree 3rd try - Copy-edit3.pdf
+
+The tree: ![](D:/Aplysina454/Halogenase/Halogenase_Diversity_3_R/Tree/itol/Tree 3rd try - Copy-edit4.tif){width=700px} 
+
+Figure 1. Maximum Likelihood Phylogeny of putative tryptophan halogenase (TH) protein sequences from six Aplysina species. Sequences obtained in this study are labelled with S. The tree was constructed from 247 amino acid positions. Two NADH-dependent flavin oxidoreductases (P32370 from Clostridium scindens and Q56691 from Vibrio harveyi) were used as outgroup. Four well-studied TH obtained from UniProt (green) and putative TH from the sponge Crambe crambe (pink) are included as reference sequences. Bars indicate relative abundance of the sequences in the sponge species, with the outer rim of the grey shading indicating 88%. Bootstrap values >80% are indicated by grey circles at the branch points. Sequences in bold refer to the closest relatives from the “halogenase” database. UniProt sequence accession numbers are given inside brackets. Tree scale corresponds to the mean expected number of amino acid substitutions per site.
+
+
+***
+
+# Halogenase Diversity Analysis
+
+Using the halogenase data as OTUs to plot alpha and beta diversity
+
+
+### Halogenase phyloseq object
+
+```{r make-phyloseq}
+
+# read table with all information on the halogenase hits
+h <- read.csv("halo_hits_annot_abundance.csv", row.names=1)
+
+# make the OTU table with the halogenase genes into a phyloseq compatible file
+hOTU = otu_table(h[,2:17], taxa_are_rows = TRUE)
+
+
+#import the metadata file aka mapping file
+meta_table <-read.delim("Aplysinas_halopyromap2.txt",row.names=1, sep = "\t")
+meta_table$ID <- rownames(meta_table)
+meta_table$Sp. <- rownames(meta_table)
+# remove the numbers from the column
+meta_table$Sp. <- sub("[0-9]", "", meta_table$Sp.)
+
+#make metadata file compatible with phyloseq
+sam = sample_data(meta_table)
+
+
+# create taxonomy table by subsetting the file with all information on halo hits.
+# "Protein.name"     "Organism"         "Gene.name"        "pident"           "Seqs_per_Cluster" "Seqs_length" "qseqid"           "Sequence" "UniProt.accession"
+hTAX = tax_table(h[,c(20,21,22,26,19,37,24,18,23)])
+rownames(hTAX) = rownames(h)
+colnames(hTAX) = colnames(h[,c(20,21,22,26,19,37,24,18,23)])
+
+
+# import tree:
+tree_Q = read.tree("./Tree/RAxML_bipartitions.halo_tree_db_raxml")
+tree_Q
+# check if Tree is rooted
+is.rooted(tree_Q)
+
+
+# prune the tree to remove the reference sequences.
+# species to keep
+species<-c(rownames(h))
+
+# prune tree:
+pr.tree_Q <- drop.tip(tree_Q,tree_Q$tip.label[-match(species, tree_Q$tip.label)])
+#check if still rooted.
+is.rooted(pr.tree_Q)
+
+#merge files into phyloseq object
+hps <-merge_phyloseq(hOTU, hTAX, sam, pr.tree_Q)
+
+# sanity check
+print(hps)
+head(tax_table(hps))
+
+saveRDS(hps, "./PhyloseqObjects/halogenase_ps.RDS")
+
+```
+
+### Alpha diversity (Halogenases)
+
+Plot diversity
+```{r}
+#plot the diversity using different metrics
+p <- plot_richness(hps, "Species", measures = c("Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson", "Fisher"))
+
+
+p2 <- plot_richness(hps, "Species", measures = c("Observed", "Shannon")) + mytheme + geom_boxplot() +  geom_point(aes(color = Species), width=0.2, size = 2.5) + scale_color_manual(values=Colors)
+
+``` 
+
+
+uses the pd function of the [picante](https://cran.r-project.org/web/packages/picante/picante.pdf) package, calculates Faith's phylogenetic diversity.
+
+```{r Alpha-diversity-calculations}
+#create a datatable from the otu_table of phyloseq
+otu_table_hps <- as.data.frame(hps@otu_table)
+
+# calculate phylogenetic diversity
+h_df.pd <- pd(t(otu_table_hps), pr.tree_Q,include.root=F) # t(ou_table) transposes the table for use in picante and needs the tre file 
+
+# calculate other alpha diversity metrics
+tab3 <- global(hps, index = c("Observed", "Shannon"))
+
+# save diversity index in file
+div <- cbind(h_df.pd, tab3)
+write.csv(div, file = "./Tables/halo_diversity.csv")
+
+```
+
+Test if halogenase diversity is significantly different between species
+```{r}
+
+# make dataframe from metadata
+hps.metadata <- as(sample_data(hps), "data.frame")
+
+hps.metadata.div <- cbind(hps.metadata, div)
+
+# Test for significant differences between species with adjustment for multiple testing
+
+# Pairwise  wilcox test:
+# test Phylogenetic diversity halogenases
+pairwise.wilcox.test(hps.metadata.div$PD, hps.metadata.div$Species, p.adj = "BH")  # no significant differenes
+
+
+# test observed Richness halogenases
+pairwise.wilcox.test(hps.metadata.div$observed, hps.metadata.div$Species, p.adj = "BH")  # no significant differenes
+
+# test Shannon index halogenases
+pairwise.wilcox.test(hps.metadata.div$diversities_shannon, hps.metadata.div$Species, p.adj = "BH")  # no significant differenes
+
+
+# One way ANOVA
+# Compute the analysis of variance
+
+# test Phylogenetic diversity halogenases
+PD.aov <- aov(PD ~ Species, data = hps.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(PD.aov) # no significant differences
+
+# test observed Richness halogenases
+obs.aov <- aov(observed ~ Species, data = hps.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(obs.aov) # no significant differences
+
+# test Shannon index halogenases
+sha.aov <- aov(diversities_shannon ~ Species, data = hps.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(sha.aov) 
+
+#                                  diff        lwr       upr     p adj
+#A.cauliformis-A.aerophoba   1.29362970  0.1632118 2.4240476 0.0233574 *
+#A.fulva-A.aerophoba         1.07782538 -0.0525925 2.2082433 0.0639183
+#A.lacunosa-A.aerophoba      1.52408631  0.3936684 2.6545042 0.0081794 * 
+
+# Test if A. aerophoba (Mediterranean) is different from Caribbean species
+# test Phylogenetic diversity halogenases
+PD.aov <- aov(PD ~ Sea, data = hps.metadata.div)
+# Tukey multiple pairwise-comparisons
+summary(PD.aov)
+TukeyHSD(PD.aov) # no significant differences
+
+# test observed Richness halogenases
+obs.aov <- aov(observed ~ Sea, data = hps.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(obs.aov) # no significant differences
+
+
+```
+
+
+
+To plot PD we get the metadata file from phyloseq object.  
+
+We add the results of PD to this file and then plot phylogenetic diversity.   
+
+```{r plot-phylogenetic-diversity-1, warning=FALSE, message=FALSE, tidy=TRUE}
+
+# get the metadata (sample data) from phyloseq into seprate object as data.frame
+metadata_table_hps  <- meta(hps)
+
+# merge diversity and metadata table
+metadata_table_hps <- cbind(metadata_table_hps, h_df.pd, tab3)
+
+
+# melt dataframe into long format to plot different columns
+metadata_table_hps.long2 <- melt(metadata_table_hps,id.vars="Species", measure.vars=c("PD","observed","diversities_shannon"))
+
+# rename the levels
+levels(metadata_table_hps.long2$variable) <- c("Phylogenetic Diversity", "Observed Richness", "Shannon Index")
+
+# plot with facets
+plot.pd <- ggplot(metadata_table_hps.long2, aes(Species, value)) + geom_boxplot()  +  geom_point(aes(color = Species), width=0.2, size = 2.5) + scale_color_manual(values=Colors) + facet_wrap( ~ variable, scales = "free_y")   + mytheme + xlab("") 
+
+plot.pd <- plot.pd + theme(
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()) + labs(y=NULL)
+
+ggsave("./Figures/Alpha_Diversity/1_halo_Phylogenetic_Diversity.pdf", height=6, width=8)
+
+plot.pd
+
+```
+
+
+### Beta diversity (Halogenases)  
+
+Unweighted UniFrac
+
+```{r}
+
+# transform to relative abundance
+hps.rel <- transform(hps, "relative.abundance")
+
+# unweighted Bray Curtis Distance
+ordu.bray = ordinate(hps.rel, "PCoA", "bray", weighted = F)
+bray1 <- plot_ordination(hps.rel, ordu.bray, 
+                        color = "Species", 
+                        shape = "Sea") 
+bray1 <- bray1 + geom_point(size = 2.5) + mytheme + ggtitle("PCoA of (unweighted) Bray-Curtis distances") + scale_color_manual(values=Colors)
+
+# and save the graph:
+ggsave("./Figures/Beta_Diversity/Bray_Curtis_relab_halo.pdf", height = 6, width = 8)
+bray1
+
+``` 
+
+ Weighted Unifrac
+
+```{r}
+
+# transform to relative abundance
+hps.rel <- transform(hps, "relative.abundance")
+
+# Weighted UniFrac Distance
+ordu.bray2 = ordinate(hps.rel, "PCoA", "wunifrac")
+bray2 <- plot_ordination(hps.rel, ordu.bray2, 
+                        color = "Species") 
+bray2 <- bray2 + geom_point(size = 2.5) + mytheme + ggtitle("PCoA of weighted UniFrac distances") + scale_color_manual(values=Colors) + theme(plot.title = element_text(size = 11))
+
+# and save the graph:
+ggsave("./Figures/Beta_Diversity/WUnifrac_PCoA_relab_halo.pdf", height = 6, width = 8)
+bray2
+
+``` 
+
+
+
+#### Venn diagram
+```{r}
+
+# merge samples by Species.
+hps.mer = merge_samples(hps, "Species")
+# transform the OTU table
+ven <- t(otu_table(hps.mer))
+# write file to make venn diagram
+write.csv(ven, "./VennDiagram/Venn_Diagram_halo.csv")
+
+``` 
+
+open this file Venn_Diagram_halo.csv in excel, sort the columns (sponges) by largest to smallest, copy the sequence IDs (S00X) to a new column. Repeat for all sponge species. save as new file: Venn_Diagram_data.csv
+
+Upload the columns
+Create Venn diagram with this [great tool!!](http://jvenn.toulouse.inra.fr/app/example.html)
+Download figure as jVenn_chart.svg
+
+Download **CSV Lists!!** and save D:\Aplysina454\Halogenase\Halogenase_Diversity_3_R\VennDiagram\jVenn.csv
+
+In Adobe Acrobat add Venn diagram to alpha-beta-diversity plot and save as Alpha_Beta_Diversity_Halo - Copy-edit2.pdf
+
+```{r}
+
+fig <- ggarrange(plot.pd + theme(legend.position="none"), 
+                    bray2,
+                    ncol = 3, nrow = 1, align = "h",
+                    labels = c("A", "B", "C"))
+
+ggsave("./Figures/Alpha_Beta_Diversity_Halo.pdf", height = 4, width = 14)
+
+
+``` 
+
+manually (in Adobe Acrobat) added the venn diagram to Alpha_Beta_Diversity_Halo figure. saved as Alpha_Beta_Diversity_Halo - Copy-edit.pdf
+
+Alpha_Beta_Diversity_Halo - Copy-edit.pdf   with Venneuler package Venn diagram  
+Alpha_Beta_Diversity_Halo - Copy-edit2.pdf  with jVenn website tool Venn diagram  
+
+Later combined with the diversity figure of microbial 16S genes.
+
+
+***
+
+The next part contains analysis of the bacterial taxa (16S rRNA genes) found in the Aplysina species
+
+# Microbial Diversity of Aplysina species
+
+## Pyrosequencing data analysis summary (mothur)
+
+Input files are in a folder called 16S_InputFiles and are results of [mothur](https://www.mothur.org/) analysis. Commands for mothur analysis available upon request.
+
+ In brief, sequences were demultiplexed, denoised, and sequences with i) more than two mismatches in the primers, ii) more than one mismatch in the barcode, iii) more than 8 homopolymer were discarded (trim.flows and trim.seqs commands). Reads were reduced to unique sequences (unique.seqs) and aligned to the SILVA SSU 128 database (Quast et al. 2013) (align.seqs: flip=t). Aligned reads were kept (screen.seqs: optimize=start-end, criteria=98, minlength=250), and empty alignment columns were removed (filter.seqs: vertical=T, trump=.). Read counts for sequences that were within 1 bp out of 100 bp difference to a more abundant sequence were merged (pre.cluster: diffs=2). Chimeric sequences were detected with Vsearch (chimera.vsearch) (Rognes et al. 2016) and removed (remove.seqs). Taxonomy was assigned using the SILVA SSU 128 database (classify.seqs: cutoff=80) (Qiong Wang et al. 2007). Sequences that were not classified at Domain level as well as chloroplast sequences were removed (remove.lineage). Uncorrected pairwise distances between aligned sequences were calculated (dist.seqs: cutoff=0.15), OTUs were generated based on 97% sequence identity (cluster: method=opti, cutoff=0.03), and files were converted to .shared format (make.shared: list=, group=,). Taxonomy was assigned to OTUs (classify.otu: list=, name=, taxonomy=, label=0.03), and representative sequences for each OTU were picked (get.oturep: phylip=, list=, fasta=, label=0.03, sorted=size). Further OTU table processing was done with Bash and R scripts.
+
+
+Demultiplexed Pyrosequencing data of 16S rRNA genes were deposited at the NCBI Sequence Read Archive under sample accession numbers SRR7853935 to SRR7853950.
+
+```{r}
+
+# import mothur files and make phyloseq object
+ps <- import_mothur(mothur_list_file = "./16S_InputFiles/final.NG6533.opti_mcc.list", 
+  mothur_tree_file = "./16S_InputFiles/final.NG6533.opti_mcc.0.03.rep.clean_cut.phylip.tre", mothur_shared_file = "./16S_InputFiles/final.NG6533_opti_mcc.shared",
+  mothur_constaxonomy_file = "./16S_InputFiles/final.NG6533.taxonomy")
+
+# read metadata file
+meta <- read.csv("./16S_InputFiles/Aa_mapping2.csv", row.names = 1)
+# make rownames the same
+row.names(meta) <- sample_names(ps)
+
+# assign metadata to phyloseq file
+sample_data(ps) <- meta
+print(ps)
+
+```
+
+```{r}
+
+# remove the contaminated samples AA2 and Apfi3
+ps2 = subset_samples(ps, SampleID != "AA2" & SampleID != "Apfi3")
+
+# remove taxa that are not in the subset
+ps2 <- prune_taxa(taxa_sums(ps2) > 0, ps2)
+
+# rename samples
+sample_names(ps2) <- c("AAe1","AAe3","AAr1","AAr2","AAr3","ACa1","ACa2","ACa3","AFi1","AFi2","AFu1","AFu2","AFu3","ALa1","ALa2","ALa3")
+
+# assign the halo mapping file to this phyloseq object, since now it's the same but the halo is formatted more nicely.
+
+sample_data(ps2) <- sam
+sample_names(ps2)
+colnames(tax_table(ps2)) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")
+
+saveRDS(ps2, "./PhyloseqObjects/16S_ps.RDS") # phyloseq object with the samples
+
+#number of reads in the dataset
+# sum(sample_sums(ps2)) # 122142
+``` 
+
+```{r}
+# dataframe with reads per sample
+ps2_df= data.table(as(sample_data(ps2), "data.frame"), Reads_per_sample = sample_sums(ps2), keep.rownames = TRUE)
+
+reads <- ggplot(ps2_df, aes(Species, Reads_per_sample)) + geom_boxplot() + geom_point(size = 2.5, aes(color = Species)) + scale_color_manual(values=Colors) + ggtitle("Reads per sample") + mytheme  
+reads
+
+
+# We make a data table with information on the OTUs: sum the number of reads for each OTU
+ps2.dt.taxa <- tax_table(ps2)
+ps2.dt.taxa <- data.frame(ps2.dt.taxa)                        
+ps2.dt.taxa$OTUabundance <- taxa_sums(ps2)
+ps2.dt.taxa$OTU <- taxa_names(ps2)
+
+ps2.dt.tax.plot <- ggplot(ps2.dt.taxa, aes(OTUabundance)) + geom_histogram() + mytheme + ggtitle("Histogram of OTU counts")
+plot.zoom <- ggplot(ps2.dt.taxa, aes(OTUabundance)) + geom_histogram(breaks=seq(0, 20, by =1)) + mytheme  + ggtitle("Zoom (0-20)")
+
+t <- ggarrange(ps2.dt.tax.plot, plot.zoom)
+t
+
+# min(ps2.dt.taxa$OTUabundance) #1
+# max(ps2.dt.taxa$OTUabundance) #23793
+# mean(ps2.dt.taxa$OTUabundance) #61.3
+```
+
+```{r, fig.width=9 }
+
+#total number of reads in the dataset
+reads_per_OTU <- taxa_sums(ps2)
+R <- sum(reads_per_OTU)
+
+# treshold
+X <- 10
+
+A <- length(reads_per_OTU[reads_per_OTU < X])
+B <- sum(reads_per_OTU[reads_per_OTU < X])
+D <- sum(reads_per_OTU[reads_per_OTU < X])/sum(reads_per_OTU)
+C <- D*100
+```
+
+Out of `r R` reads in the dataset, `r A` OTUs have less than `r X` reads. This accounts for `r B` reads in the dataset, which accounts for `r C`% of the data.
+
+
+### Alpha diversity (Microbes)
+
+uses the pd function of the [picante](https://cran.r-project.org/web/packages/picante/picante.pdf) package, calculates Faith's phylogenetic diversity.
+
+```{r Alpha-diversity-calculations-microbes}
+#create a datatable from the otu_table of phyloseq
+otu_table_ps2 <- as.data.frame(ps2@otu_table)
+
+# extract tree file from the phyloseq object
+tree <- phy_tree(ps2)
+class(tree)
+# calculate phylogenetic diversity
+df.pd <- pd(t(otu_table_ps2), tree, include.root = F) # t(ou_table) transposes the table for use in picante and needs the tre file 
+
+# calculate other alpha diversity metrics
+tab3 <- global(ps2, index = "all")
+otu_table_ps2$OTU <- rownames(otu_table_ps2)
+# save diversity index in file
+div <- cbind(df.pd, tab3)
+write.csv(div, file = "./Tables/microbe_diversity.csv")
+
+```
+
+
+Test if microbial diversity is significantly different between species
+
+```{r}
+
+# make dataframe from metadata
+ps2.metadata <- as(sample_data(ps2), "data.frame")
+
+ps2.metadata.div <- cbind(ps2.metadata, div)
+
+# Test for significant differences between species with adjustment for multiple testing
+
+# Pairwise  wilcox test:
+# test Phylogenetic diversity microbes
+pairwise.wilcox.test(ps2.metadata.div$PD, ps2.metadata.div$Species, p.adj = "BH")  # no significant differenes
+
+
+# test observed Richness microbes
+pairwise.wilcox.test(ps2.metadata.div$observed, ps2.metadata.div$Species, p.adj = "BH")  # no significant differenes
+
+# test Shannon index microbes
+pairwise.wilcox.test(ps2.metadata.div$diversities_shannon, ps2.metadata.div$Species, p.adj = "BH")  # no significant differenes
+
+
+# One way ANOVA
+# Compute the analysis of variance
+
+# test Phylogenetic diversity microbes
+PD.aov <- aov(PD ~ Species, data = ps2.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(PD.aov) # no significant differences
+
+# test observed Richness microbes
+obs.aov <- aov(observed ~ Species, data = ps2.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(obs.aov) # no significant differences
+
+# test Shannon index microbes
+sha.aov <- aov(diversities_shannon ~ Species, data = ps2.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(sha.aov) 
+
+#                                  diff        lwr        upr     p adj
+#A.fistularis-A.aerophoba   -1.56646646 -2.8699646 -0.2629683 0.0173160 *
+#A.fistularis-A.archeri     -1.75076780 -2.9406934 -0.5608422 0.0044441 *
+#A.fistularis-A.cauliformis -1.84722747 -3.0371531 -0.6573019 0.0030071 *
+#A.fulva-A.fistularis        1.69261619  0.5026906  2.8825418 0.0056486 *
+#A.lacunosa-A.fistularis     2.19795305  1.0080275  3.3878786 0.0007863 *
+
+# test if A. aerophoba is significantly different from Caribbean species
+# test Phylogenetic diversity microbes
+PD.aov <- aov(PD ~ Sea, data = ps2.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(PD.aov) # no significant differences
+
+# test observed Richness microbes
+obs.aov <- aov(observed ~ Sea, data = ps2.metadata.div)
+# Tukey multiple pairwise-comparisons
+TukeyHSD(obs.aov) # no significant differences
+
+
+```
+
+
+
+
+```{r}
+plot.Adiv <- plot_richness(ps2, "Species", measures = c("Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson", "Fisher"))
+
+print(plot.Adiv + geom_boxplot(aes(fill = Species)) + scale_fill_manual(values = Colors))
+
+# all diversity estimators follow similar trend.
+# based on this i decide to plot phylogenetic diversity, observed Richness and Shannon Index again.
+
+```
+
+To plot PD we get the metadata file from phyloseq object.  
+
+```{r plot-phylogenetic-diversity-2, warning=FALSE, message=FALSE, tidy=TRUE}
+
+# get the metadata (sample data) from phyloseq into seprate object as data.frame
+metadata_table_ps2  <- meta(ps2)
+
+# merge diversity and metadata table
+metadata_table_ps2 <- cbind(metadata_table_ps2, df.pd, tab3)
+
+
+# melt dataframe into long format to plot different columns
+metadata_table_ps2.long2 <- melt(metadata_table_ps2,id.vars="Species", measure.vars=c("PD","observed","diversities_shannon"))
+
+# rename the levels
+levels(metadata_table_ps2.long2$variable) <- c("Phylogenetic Diversity", "Observed Richness", "Shannon Index")
+
+# plot with facets
+plot.pd <- ggplot(metadata_table_ps2.long2, aes(Species, value)) + geom_boxplot()  +  geom_point(aes(color = Species), width=0.2, size = 2.5) + scale_color_manual(values=Colors) + facet_wrap( ~ variable, scales = "free_y")   + mytheme + xlab("") 
+
+plot.pd <- plot.pd + theme(
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()) + labs(y=NULL)
+
+ggsave("./Figures/Alpha_Diversity/1_Microbe_Phylogenetic_Diversity.pdf", height=6, width=8)
+print(plot.pd)
+
+```
+
+
+### Beta diversity (Microbes)  
+
+Unweighted UniFrac
+
+```{r}
+
+# transform to relative abundance
+ps2.rel <- transform(ps2, "relative.abundance")
+
+# unweighted Bray Curtis Distance
+ordu.bray = ordinate(ps2.rel, "PCoA", "bray", weighted = F)
+bray1 <- plot_ordination(ps2.rel, ordu.bray, 
+                        color = "Species", 
+                        shape = "Sea") 
+bray1 <- bray1 + geom_point(size = 2.5) + mytheme + ggtitle("PCoA of (unweighted) Bray-Curtis distances") + scale_color_manual(values=Colors)
+
+# and save the graph:
+ggsave("./Figures/Beta_Diversity/Bray_Curtis_relab_micro.pdf", height = 6, width = 8)
+bray1
+
+``` 
+
+
+Weighted UniFrac
+
+```{r}
+
+# transform to relative abundance
+ps2.rel <- transform(ps2, "relative.abundance")
+
+# Weighted UniFrac Distance
+ordu.bray2 = ordinate(ps2.rel, "PCoA", "wunifrac")
+bray2 <- plot_ordination(ps2.rel, ordu.bray2, 
+                        color = "Species") 
+bray2 <- bray2 + geom_point(size = 2.5) + mytheme + ggtitle("PCoA of weighted UniFrac distances") + scale_color_manual(values=Colors) + theme(plot.title = element_text(size = 11))
+bray2
+# and save the graph:
+ggsave("./Figures/Beta_Diversity/WUnifrac_PCoA_relab_microbes.pdf", height = 6, width = 8)
+
+``` 
+
+Venn diagram
+```{r}
+
+# merge samples by Species.
+ps2.mer = merge_samples(ps2, "Species")
+# transform the OTU table
+ven <- t(otu_table(ps2.mer))
+
+write.csv(ven, "./VennDiagram/Venn_Diagram_micro.csv")
+
+ot <- as.data.frame(otu_table(ps2))
+ta <- as.data.frame(tax_table(ps2))
+ot_ta <- cbind(ot,ta)
+write.csv(ot_ta, "./Tables/Complete_Otu_table_taxonomy.csv")
+``` 
+for generating Venn diagram, see above for the same graph in the halogenase part.
+
+Arrange alpha and beta diversity analyses for microbial data
+```{r}
+
+fig <- ggarrange(plot.pd + theme(legend.position="none"), 
+                    bray2,
+                    ncol = 3, nrow = 1, align = "h",
+                    labels = c("A", "B", "C"))
+
+ggsave("./Figures/Alpha_Beta_Diversity_Microbes.pdf", height = 4, width = 14)
+
+fig
+
+``` 
+
+manually added venn diagrams of  both halogenase and microbial data and saved as Alpha_Beta_Halo_Microbes - edit.pdf
+
+![](./Figures/Alpha_Beta_Halo_Microbes - edit.JPG){width=700px}
+
+Figure 2: Halogenase and bacterial 16S rRNA gene alpha diversity indices (A,D). PCoA analysis of weighted UniFrac distances on relative abundance information of tryptophan halogenase (TH) amino acid sequences (B) and 16S rRNA genes (E). A. aerophoba replicates are almost identical and thus overlap in plot B. Venn diagrams of shared and unique TH sequences (C) and 16S rRNA genes (F) per sponge species. 
+
+## Extract the Core taxa
+
+in the Venn diagram you can see that there's a core of OTUs, shared by all species, or the Caribbean species
+
+```{r}
+
+venn <- read.csv("./VennDiagram/jVenn_micro.csv")
+
+# subset phyloseq to only the core (shared in all 6 species)
+
+# Take a subset of the phyloseq object
+# make the list of OTUs to keep
+core <- c(levels(venn$AAe.AAr.ACa.AFi.AFu.ALa))
+core<-core[-1] 
+# prune phyloseq
+core.ps <- prune_taxa(core, ps2.rel)
+
+core_df <- cbind(as.data.frame(otu_table(core.ps)), as.data.frame(tax_table(core.ps)))
+
+write.csv(core_df, "./Tables/core_OTUs_present_all_species.csv")
+
+# Caribbean core: OTUs shared by all 5 species
+carr_core <- c(levels(venn$AAr.ACa.AFi.AFu.ALa)) 
+carr_core<-carr_core[-1] 
+# prune phyloseq
+carr_core.ps <- prune_taxa(carr_core, ps2.rel)
+
+carr_core_df <- cbind(as.data.frame(otu_table(carr_core.ps)), as.data.frame(tax_table(carr_core.ps)))
+write.csv(carr_core_df, "./Tables/caribbean_core_OTUs_present_all_carib_species.csv")
+dim(carr_core_df)
+```
+
+
+
+
+***
+#  Correlation analysis: 
+
+Trying to find clues about the potential microbial producers of the halogenase genes by correlating relative abundance of the 16S genes to the relative abundance of the halogenase genes. 
+
+
+
+## Correlation top 50 taxa with all halogenases
+
+Correlate top 50 taxa with halogenases:
+ps50.rel
+
+Input files for the correlation analysis:
+micro16o # relative abundance OTU table
+microhalo # “OTU” table with halogenase clusters at 95% seq ID.
+
+```{r}
+
+# phyloseq object transformed to relative abundance: ps2.rel
+
+#aggregate taxa to 50 most abundant OTUs: do this BEFORE transforming to relative abundance
+
+# Take a subset of the dataset, top 50 species
+topsp1 <- names(sort(taxa_sums(ps2.rel), TRUE)[1:50])
+ps50.rel <- prune_taxa(topsp1, ps2.rel)
+
+
+ps50.rel  # phyloseq object with top 50 taxa
+## phyloseq-class experiment-level object
+## otu_table()   OTU Table:         [ 50 taxa and 16 samples ]
+## sample_data() Sample Data:       [ 16 samples by 16 sample variables ]
+## tax_table()   Taxonomy Table:    [ 50 taxa by 8 taxonomic ranks ]
+# extract metadata
+ps2.meta <- meta(ps50.rel)
+
+# get taxa information out
+micro16t <- as.data.frame(tax_table(ps50.rel))
+micro16t$OTU <- rownames(micro16t)
+
+# extract OTU table from phyloseq object
+micro16o <- as.data.frame(otu_table(ps50.rel))
+
+#convert to matrix
+micro16o.50 <- as.matrix(micro16o)
+class(micro16o.50)
+dim(micro16o.50)
+
+# replace rownames (OTUs) with Phylum and OTU
+rownames(micro16o.50) <- paste(micro16t$OTU, micro16t$Phylum)
+saveRDS(micro16o.50, "./Correlation/micro16o.50.RDS")
+
+```
+
+prepare the halogenase data:
+
+```{r}
+# get the halogenase OTU table
+
+#halogenase relative abundance phyloseq
+# transform to relative abundance
+hps.rel <- transform(hps, "relative.abundance")
+
+# extract OTU table
+microhalo <- abundances(hps.rel)
+halot <- as.data.frame(tax_table(hps.rel))
+
+# remove empty space
+halot$Protein.name <- trimws(halot$Protein.name, which = "both")
+
+rownames(microhalo) <- paste(rownames(halot)) 
+
+# to paste the rest of the annotation: "; ", halot$Protein.name, "; ", halot$Organism, " ",  "(", halot$UniProt.accession, ");", " ", halot$pident, "%", sep = ""
+```
+
+
+Correlation:
+
+```{r, warning=FALSE}
+corTh <- 0.5  #corr threshold
+#pTh <- 0.05  #pvalue threshold
+pThNoCorrection = 0.05
+widthList <- c(12, 16, 18)
+ 
+#set dimensions for correlationa matrix
+corrMatrix <- mat.or.vec(nrow(micro16o.50), nrow(microhalo));rownames(corrMatrix) <- rownames(micro16o.50); colnames(corrMatrix) <- rownames(microhalo);
+pMatrix <- mat.or.vec(nrow(micro16o.50), nrow(microhalo));rownames(pMatrix) <- rownames(micro16o.50); colnames(pMatrix) <- rownames(microhalo);
+ 
+ # formula for calculating the correlations 
+ for (mic in rownames(micro16o.50)){
+  for(chem in rownames(microhalo)){
+     corrMatrix[mic,chem] <-   cor(micro16o.50[mic,],microhalo[chem,],use="na.or.complete", method="spearman")
+    pMatrix[mic,chem] <-   cor.test(micro16o.50[mic,],microhalo[chem,],use="na.or.complete",  method="spearman")$p.value
+   }
+ }
+ 
+##set NA correlations to zero
+corrMatrix[which(is.na(corrMatrix))] = 0
+##set NA in pvalue to 1
+pMatrix[which(is.na(pMatrix))] = 1
+ 
+ 
+Matrix <- corrMatrix
+Matrix[which(abs(corrMatrix)< corTh)] <- 0  #put cutoff on correlation
+Matrix[which(pMatrix > pThNoCorrection)] <- 0  #put cut of pvalue  Run this for only p value
+
+# save all the files:
+
+saveRDS(corrMatrix, "./Correlation/corrMatrix_merged_OTU.RDS")
+saveRDS(Matrix, "./Correlation/Matrix_merged_OTU.RDS")
+
+
+pdf("./Correlation/corrheatmap_top50_OTU_halo.pdf", height = 14, width = 25)
+Nconnections=sum(Matrix>0)
+if(Nconnections > 0){
+  filename=paste("initial_plots_heatmaps_OTU50_halo.pdf", sep="")
+  pheatmap(t(Matrix), scale="none",  width=widthList[var], height=12 , fontsize = 8)
+  pheatmap(t(Matrix),scale="none")
+}
+sum(Matrix>0)
+## [1] 205
+dev.off()
+
+#to remove zero (or everything between -0.1 to 0.1) correlations when running matrix withought corr and pval restrictions
+#diag(Matrix) = 0
+selrow=which(rowSums(abs(Matrix)>0.5)>0)
+selcol=which(colSums(abs(Matrix)>0.5)>0)
+#diag(Matrix) = 1
+
+
+pdf("./Correlation/OTU_top50_halo.pdf", height = 8, width = 9)
+pheatmap((Matrix[selrow,selcol]),scale="none",  width=widthList[var], height=11, fontsize = 10, cluster_rows = TRUE, cluster_cols =TRUE)
+dev.off() 
+
+```
+
+```{r}
+
+m <- Matrix[selrow,selcol]
+dim(m)
+## [1] 50 46
+#to save matrix
+write.csv(Matrix,file ='./Correlation/result_top50_OTU_halo.csv')
+ 
+####get matrix for cytoscape
+ 
+Matrix <- corrMatrix
+Matrix[which(abs(corrMatrix)< corTh)] <- 0  #put cutoff on correlation
+Matrix[which(pMatrix > pThNoCorrection)] <- 0  #put cut of pvalue  Run this for only p value
+ 
+diag(Matrix)=0
+ 
+yy=Matrix
+yy[lower.tri(yy )] <- 0
+xx <- which(yy!=0, arr.ind=TRUE)
+zz <- which(yy!=0)
+sum(Matrix>0) # matrix withought diagnol 1
+## [1] 203
+write.table(cbind(rownames(yy)[xx[,1]],colnames(yy)[xx[,2]], yy[zz]),file="./Correlation/Cytoscape_top50_OTU_halo.csv", col.names=FALSE, row.names=FALSE, sep=",", quote=FALSE)
+
+print(pheatmap((Matrix[selrow,selcol]),scale="none",  width=widthList[var], height=11, fontsize = 10, cluster_rows = TRUE, cluster_cols =TRUE))
+```
+
+
+Supplementary Figure S4: Heatmap showing significant (Spearman r>±0.5, p<0.05) correlation of relative halogenase abundances (columns) with the relative abundance of the overall 50 most prevalent bacterial OTUs (rows). Columns and rows are clustered by Euclidian distance. 
+
+## Correlation of shared Caribbean halogenases with the shared Caribbean taxa
+
+in this case, both 16S and halogenase genes are present in all the sponge species, so i hope to have a more reliable result when correlating the relative abundances.
+
+
+Input files for the correlation analysis:  
+micro16o.car # relative abundance OTU table  
+ha2 # "OTU" table with caribbean core halogenase clusters at 95% seq ID.  
+
+```{r}
+ps2.rel  # phyloseq object 
+
+# Take a subset of the microbial, caribbean core ALL CARIB SPECIES
+carr_core
+ps_carr_core <- prune_taxa(carr_core, ps2.rel)
+
+# extract metadata
+ps_carr_core.meta <- meta(ps_carr_core)
+
+# get taxa information out
+micro16t <- as.data.frame(tax_table(ps_carr_core))
+micro16t$OTU <- rownames(micro16t)
+
+# extract OTU table from phyloseq object
+micro16o <- as.data.frame(otu_table(ps_carr_core))
+
+#convert to matrix
+micro16o.car <- as.matrix(micro16o)
+class(micro16o.car)
+dim(micro16o.car)
+
+# replace rownames (OTUs) with Phylum and OTU
+rownames(micro16o.car) <- paste(micro16t$OTU, micro16t$Phylum)
+saveRDS(micro16o.car, "./Correlation/micro16o.car.RDS")
+
+# how much of the relative abundance are these shared caribbean core taxa?
+sums <- as.data.frame(sort(colSums(micro16o.car)))
+
+mean(sums$`sort(colSums(micro16o.car))`)
+plot(density(sums$`sort(colSums(micro16o.car))`))
+# between 28 and 80% relative abundance, with mean of 46%
+
+``` 
+
+
+Subset the halo phyloseq to SHARED BY ALL CARIBBEAN SPECIES
+thats ONLY 4 halogenases!
+ 
+```{r}
+# shared by all 5 Caribbean species: (from ./VennDiagram/jVenn.csv): thats ONLY 4 halogenases!
+sh <- c("S3006","S0310","S3103","S3275")
+
+# halos that are in the caribbean core BY ALL CARIB
+ha <- as.data.frame(microhalo)
+ha$S <- substr(rownames(microhalo), 0, 5)
+ha2 <- subset(ha, ha$S %in% sh)
+ha2$S <- NULL
+ha2 <- as.matrix(ha2)
+
+# how much of the relative abundance are these shared halogenases?
+sums <- as.data.frame(sort(colSums(ha2)))
+
+mean(sums$`sort(colSums(ha2))`)
+plot(density(sums$`sort(colSums(ha2))`))
+# between 10 and 71% relative abundance, with mean of 30%
+
+```
+
+
+
+Input files for the correlation analysis:
+micro16o.car # relative abundance OTU table
+ha2 # "OTU" table with caribbean core halogenase clusters at 95% seq ID.
+
+
+```{r correlation-carr-core, warning=FALSE}
+corTh <- 0.5  #corr threshold
+#pTh <- 0.05  #pvalue threshold
+pThNoCorrection = 0.05
+widthList <- c(12, 16, 18)
+ 
+#set dimensions for correlationa matrix
+corrMatrix <- mat.or.vec(nrow(micro16o.car), nrow(ha2));rownames(corrMatrix) <- rownames(micro16o.car); colnames(corrMatrix) <- rownames(ha2);
+pMatrix <- mat.or.vec(nrow(micro16o.car), nrow(ha2));rownames(pMatrix) <- rownames(micro16o.car); colnames(pMatrix) <- rownames(ha2);
+ 
+ # formula for calculating the correlations 
+ for (mic in rownames(micro16o.car)){
+  for(chem in rownames(ha2)){
+     corrMatrix[mic,chem] <-   cor(micro16o.car[mic,],ha2[chem,],use="na.or.complete", method="spearman")
+    pMatrix[mic,chem] <-   cor.test(micro16o.car[mic,],ha2[chem,],use="na.or.complete",  method="spearman")$p.value
+   }
+ }
+ 
+##set NA correlations to zero
+corrMatrix[which(is.na(corrMatrix))] = 0
+##set NA in pvalue to 1
+pMatrix[which(is.na(pMatrix))] = 1
+ 
+ 
+Matrix <- corrMatrix
+Matrix[which(abs(corrMatrix)< corTh)] <- 0  #put cutoff on correlation
+Matrix[which(pMatrix > pThNoCorrection)] <- 0  #put cut of pvalue  Run this for only p value
+
+# save all the files:
+
+saveRDS(corrMatrix, "./Correlation/corrMatrix_carr_core_OTU_ALL.RDS")
+saveRDS(Matrix, "./Correlation/Matrix_carr_core_OTU_ALL.RDS")
+
+
+pdf("./Correlation/corrheatmap_carr_core_ALL.pdf", height = 14, width = 25)
+Nconnections=sum(Matrix>0)
+if(Nconnections > 0){
+  filename=paste("initial_plots_heatmaps_carr_core_halo_ALL.pdf", sep="")
+  pheatmap(t(Matrix), scale="none",  width=widthList[var], height=12 , fontsize = 8)
+  pheatmap(t(Matrix),scale="none")
+}
+sum(Matrix>0)
+dev.off()
+ 
+```
+
+```{r}
+
+#to remove zero (or everything between -0.1 to 0.1) correlations when running matrix withought corr and pval restrictions
+#diag(Matrix) = 0
+selrow=which(rowSums(abs(Matrix)>0.5)>0)
+selcol=which(colSums(abs(Matrix)>0.5)>0)
+#diag(Matrix) = 1
+
+m <- Matrix[selrow,selcol]
+dim(m)
+#to save matrix
+write.csv(Matrix,file ='./Correlation/result_carr_core_ALL.csv')
+
+
+
+# pheatmap: preserve order of dendrogram but delete the clustering trees
+# extracting the order of clustered data
+H = pheatmap(Matrix[selrow,selcol])
+# print heatmap
+pdf("./Correlation/OTU_carr_core_no_dend_ALL.pdf", height = 5.5, width = 3.1)             
+pheatmap(Matrix[selrow,selcol][H$tree_row$order, H$tree_col$order], color = colorRampPalette(c("white", "white", "white", "white", "white",
+    "orange", "red", "black"))(100), cluster_rows=F, cluster_cols=F)
+dev.off() 
+
+# prettyfied heatmap:
+
+print(pheatmap(Matrix[selrow,selcol][H$tree_row$order, H$tree_col$order], color = colorRampPalette(c("white", "white", "white", "white", "white",
+    "orange", "red", "black"))(100), cluster_rows=F, cluster_cols=F))
+
+``` 
+
+Figure 3: Heatmap displaying significant (Spearman r>0.5, p<0.05) co-occurance correlations of tryptophan halogenases (columns) and bacterial 16S rRNA gene OTUs (rows) shared between all Caribbean Aplysina species. OTU IDs and phyla are given to identify bacterial taxa. Columns and rows are clustered by Euclidian distance. 
+
+# Supplementary analyses
+
+## Extract complete taxonomy and OTU table of the correlated taxa
+
+```{r}
+ps_carr_core
+# extract otu and tax table from phyloseq
+carr_core_tax <- as.data.frame(tax_table(ps_carr_core))
+carr_core_otu <- as.data.frame(otu_table(ps_carr_core))
+
+# merge tax and otu table
+carr_core_data <- cbind(carr_core_tax, carr_core_otu)
+
+
+#make matrix into data frame
+m_carr <- as.data.frame(m)
+# subset the rownames of matrix
+rownames(m_carr) <- substr(rownames(m_carr), 0, 7)
+
+# subset the TAX/OTU table to the OTUs that are significantly correlated
+carr_core_data_cor <- subset(carr_core_data, rownames(carr_core_data) %in% rownames(m_carr))
+
+# read fasta with cluster info
+otu <- readDNAStringSet("D:/Aplysina454/Halogenase/Halogenase_Diversity_3_R/16S_InputFiles/final.NG6533_OTUs.fasta", "fasta")
+
+# convert to dataframe
+otu <- as.data.frame(otu)
+rownames(otu) <- substr(rownames(otu), 0, 7)
+
+# subset fasta
+carr_core_fasta <- subset(otu, rownames(otu) %in% rownames(carr_core_data_cor))
+
+# merge fasta with other data
+carr_core_data_fasta <- cbind(carr_core_data_cor, carr_core_fasta)
+
+# save as table
+write.csv(carr_core_data_fasta, "./Tables/carr_core_data_cor_fasta.csv")
+```
+
+
+## Composition plot correlated core taxa
+
+```{r}
+# Take a subset of the microbial, caribbean core
+# use the significant correlation matrix to subset the phyloseq objects 
+t <- c(row.names(m))
+# delete part of the names (substring) keep only the first 7 characters
+t <- substr(t, 0, 7)
+# subset phyloseq object
+ps_correl <- prune_taxa(t, ps2.rel)
+ps_correl <- subset_samples(ps_correl, Sp. != "AAe")
+# keep OTU table
+j <- as.data.frame(otu_table(ps_correl))
+k <- as.data.frame(tax_table(ps_correl))
+l <- cbind(j,k)
+write.csv(l, "./Tables/carr_correl_taxa_abund.csv")
+
+# how much of the data is represented in the shared, correlated OTUs?
+sort(sample_sums(ps_correl))  # between 7 (AFi2) and 30% (AFu1)
+
+
+# We need to set Palette
+tax <- as.data.frame(ps_correl@tax_table)  # this will help in setting large color options
+
+otu.df <- as.data.frame(otu_table(ps_correl))  # make a dataframe for OTU information.
+# head(otu.df) # check the rows and columns
+
+tax$OTU <- row.names.data.frame(otu.df)  # Add the OTU ids from OTU table into the taxa table at the end.
+colnames(tax)  # You can see that we now have extra taxonomy levels.
+
+taxmat <- as.matrix(tax)  # convert it into a matrix.
+taxmat <- as.data.frame(taxmat)
+taxmat$'OTU Phylum' <-  paste(taxmat$OTU, taxmat$Phylum)
+new.tax <- tax_table(taxmat)  # convert into phyloseq compatible file.
+rownames(new.tax) <- rownames(taxmat)
+colnames(new.tax) <- colnames(taxmat)
+tax_table(ps_correl) <- new.tax  # incorporate into phyloseq Object
+
+# remove phy tree because doesnt work otherwise
+ps_correl@phy_tree <- NULL
+
+# what are the most abundant OTUs in that core
+sort(taxa_sums(ps_correl), decreasing=TRUE)  # Otu0007     Otu0010     Otu0023     Otu0024     Otu0022
+
+# melt to long format (for ggploting) 
+ps_correl.mel <- ps_correl %>%
+  psmelt()
+
+# sort by Abundance
+ps_correl.mel  <- ps_correl.mel[order(ps_correl.mel$Abundance),]
+
+# order for the plot
+r <- unique(ps_correl.mel[order(ps_correl.mel$Abundance),"OTU.Phylum"])
+
+# prepare a factor list for the legend entries
+x <- as.data.frame(tax_table(ps_correl.mel))
+x1 <- x$ta27    # somehow ta27 became colname for OTU Phylum
+colourCount = length(unique(x1)) #define number of variable colors based on number of Family (change the level accordingly to phylum/class/order)
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+                              
+
+# relative abundance plot
+plot.correl <- ggplot(ps_correl.mel, aes(x = Sample, y = Abundance, fill = factor(OTU.Phylum,levels = r))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = getPalette(colourCount)) +
+  mytheme +
+  ylab("Relative Abundance") + xlab("") +
+  ggtitle("Relative abundance core correlated OTUs") + 
+  guides(fill=guide_legend(title="OTU Phylum")) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggsave("./Figures/Core_correl_Abundance.pdf", height = 5.5, width = 10)
+
+plot.correl
+
+```
+Extra figure: Relative abundance of the taxa that showed significant correlation with halogenase genes.  
+
+
+### Composition plot relative abundance of bacterial phyla
+```{r}
+
+# phyloseq object transformed to relative abundance: ps2.rel
+
+# We need to set Palette
+tax <- as.data.frame(ps2@tax_table)  # this will help in setting large color options
+
+otu.df <- as.data.frame(otu_table(ps2.rel))  # make a dataframe for OTU information.
+# head(otu.df) # check the rows and columns
+
+tax$OTU <- row.names.data.frame(otu.df)  # Add the OTU ids from OTU table into the taxa table at the end.
+colnames(tax)  # You can see that we now have extra taxonomy levels.
+
+taxmat <- as.matrix(tax)  # convert it into a matrix.
+new.tax <- tax_table(taxmat)  # convert into phyloseq compatible file.
+tax_table(ps2.rel) <- new.tax  # incorporate into phyloseq Object
+
+
+# merge at Phylum names level
+ps2.com.ph <- aggregate_taxa(ps2.rel, "Phylum")
+
+
+# remove phy tree because doesnt work otherwise
+ps2.com.ph@phy_tree <- NULL
+
+# melt to long format (for ggploting)
+ps2.com.mel <- ps2.com.ph %>%
+  psmelt()
+
+# sort by Abundance
+ps2.com.mel <- ps2.com.mel[order(ps2.com.mel$Abundance),]
+
+# order for the plot
+r <- unique(ps2.com.mel[order(ps2.com.mel$Abundance),"Phylum"])
+
+# prepare a factor list for the legend entries
+x <- as.data.frame(tax_table(ps2.com.ph))
+x1 <- x$Phylum 
+colourCount = length(unique(x1)) #define number of variable colors based on number of Family (change the level accordingly to phylum/class/order)
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+                              
+
+# relative abundance plot
+plot.com <- ggplot(ps2.com.mel, aes(x = Sample, y = Abundance, fill = factor(Phylum,levels = r))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = getPalette(colourCount)) +
+  mytheme +
+  ylab("Relative Abundance") + xlab("") +
+  ggtitle("Relative abundance Phyla") + 
+  guides(fill=guide_legend(title="Phyla"))
+
+ggsave("./Figures/Phyla_Microbes.pdf", height = 6, width = 8)
+plot.com
+```
+
+Supplementary Figure 1: Relative abundance of bacterial phyla in Aplysina species.
+
+
+## Composition plot top 50 taxa
+```{r}
+
+# phyloseq object transformed to relative abundance: ps2.rel
+
+#aggregate taxa to 50 most abundant OTUs: do this BEFORE transforming to relative abundance
+
+# Take a subset of the dataset, top 50 species
+topsp1 <- names(sort(taxa_sums(ps2.rel), TRUE)[1:50])
+ps50.rel <- prune_taxa(topsp1, ps2.rel)
+
+# how much of the data is represented in the top 50 OTUs?
+sort(sample_sums(ps50.rel))  # between 59 (ALa2) and 90% (AFi2)
+
+# We need to set Palette
+tax <- as.data.frame(ps50.rel@tax_table)  # this will help in setting large color options
+
+otu.df <- as.data.frame(otu_table(ps50.rel))  # make a dataframe for OTU information.
+# head(otu.df) # check the rows and columns
+
+tax$OTU <- row.names.data.frame(otu.df)  # Add the OTU ids from OTU table into the taxa table at the end.
+colnames(tax)  # You can see that we now have extra taxonomy levels.
+
+taxmat <- as.matrix(tax)  # convert it into a matrix.
+taxmat <- as.data.frame(taxmat)
+taxmat$'OTU Phylum' <-  paste(taxmat$OTU, taxmat$Phylum)
+new.tax <- tax_table(taxmat)  # convert into phyloseq compatible file.
+rownames(new.tax) <- rownames(taxmat)
+colnames(new.tax) <- colnames(taxmat)
+tax_table(ps50.rel) <- new.tax  # incorporate into phyloseq Object
+
+# remove phy tree because doesnt work otherwise
+ps50.rel@phy_tree <- NULL
+
+# melt to long format (for ggploting) 
+ps50.rel.mel <- ps50.rel %>%
+  psmelt()
+
+# sort by Abundance
+ps50.rel.mel <- ps50.rel.mel[order(ps50.rel.mel$Abundance),]
+
+# order for the plot
+r <- unique(ps50.rel.mel[order(ps50.rel.mel$Abundance),"OTU.Phylum"])
+
+# prepare a factor list for the legend entries
+x <- as.data.frame(tax_table(ps50.rel.mel))
+x1 <- x$ta27    # somehow ta27 became colname for OTU Phylum
+colourCount = length(unique(x1)) #define number of variable colors based on number of Family (change the level accordingly to phylum/class/order)
+getPalette = colorRampPalette(brewer.pal(12, "Paired"))
+                              
+
+# relative abundance plot
+plot.50 <- ggplot(ps50.rel.mel, aes(x = Sample, y = Abundance, fill = factor(OTU.Phylum,levels = r))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = getPalette(colourCount)) +
+  mytheme +
+  ylab("Relative Abundance") + xlab("") +
+  ggtitle("Relative abundance top 50 OTUs") + 
+  guides(fill=guide_legend(title="OTU Phylum")) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+ggsave("./Figures/Top50OTUs_Microbes.pdf", height = 5, width = 10)
+plot.50
+```
+
+Supplementary Figure S2: Relative abundance of the overall 50 most abundant 16S rRNA gene OTUs in Aplysina species.
+
+## Correlation of diversity metrics
+
+To investigate whether an increased diversity of the microbiome also results in an increased halogenase gene diversity.
+```{r}
+
+# merge diversity and metadata table for halogenase data
+methps <- metadata_table_hps
+# change column names add a letter
+colnames(methps) <- paste("H", colnames(methps), sep = "_")
+
+# merge diversity and metadata table for microbiome data
+metps2 <- metadata_table_ps2 
+colnames(metps2) <- paste("M", colnames(metps2), sep = "_")
+
+# merge the tables
+table_lm <- cbind(methps, metps2)
+
+# plot linear model for PD (phylogenetic diversity)
+PD_lm <- lm(M_PD ~ H_PD, data = table_lm)  # linear model
+PD_su <- data.frame(summary(PD_lm)$coefficients) # summarize the model results
+PD_su$Adj.r.sq <- summary(PD_lm)$adj.r.squared # add the Adj. R squared as extra column in the dataframe
+
+# plot linear model
+plot.PD_lm  <- ggplot (table_lm, aes(M_PD, H_PD)) + geom_smooth(method="lm") + geom_point(aes(colour = H_Species), size=3) + scale_colour_manual(values = Colors)  + mytheme + geom_label(data=PD_su, inherit.aes=FALSE, aes(x = min(table_lm$M_PD), y = max(table_lm$H_PD)-0.5, label=paste("p=",round(as.numeric(PD_su$Pr...t..[2]),3),","," ","R^2.Adj=",round(as.numeric(PD_su$Adj.r.sq[2]),3)," "), hjust=0, vjust = 0), label.size = NA) # paste the R square and p value in the plot 
+
+plot.PD_lmx <- plot.PD_lm + mytheme + ggtitle("Phylogenetic Diversity Correlation") + theme(plot.title = element_text(size = 11))
+
+# plot linear model for Observed Richness
+Obs_lm <- lm(M_observed ~ H_observed, data = table_lm)  # linear model
+Obs_su <- data.frame(summary(Obs_lm)$coefficients) # summarize the model results
+Obs_su$Adj.r.sq <- summary(Obs_lm)$adj.r.squared # add the Adj. R squared as extra column in the dataframe
+
+
+plot.Obs_lm  <- ggplot (table_lm, aes(M_observed, H_observed)) + geom_smooth(method="lm")+ geom_point(aes(colour = H_Species), size=3) + scale_colour_manual(values = Colors)  + mytheme + geom_label(data=Obs_su, inherit.aes=FALSE, aes(x = min(table_lm$M_observed), y = max(table_lm$H_observed)-0.5, label=paste("p=",round(as.numeric(Obs_su$Pr...t..[2]),3),","," ","R^2.Adj=",round(as.numeric(Obs_su$Adj.r.sq[2]),3)," "), hjust=0, vjust = 0), label.size = NA) # paste the R square and p value in the plot 
+
+plot.Obs_lmx <- plot.Obs_lm + mytheme + ggtitle("Observed Species Correlation") + theme(plot.title = element_text(size = 11))
+
+# plot linear model for Shannon Index
+Sha_lm <- lm(M_diversities_shannon ~ H_diversities_shannon, data = table_lm)  # linear model
+Sha_su <- data.frame(summary(Sha_lm)$coefficients) # summarize the model results
+Sha_su$Adj.r.sq <- summary(Sha_lm)$adj.r.squared # add the Adj. R squared as extra column in the dataframe
+
+plot.Sha_lm  <- ggplot (table_lm, aes(M_diversities_shannon, H_diversities_shannon)) + geom_smooth(method="lm")+ geom_point(aes(colour = H_Species), size=3) + scale_colour_manual(values = Colors)  + mytheme + geom_label(data=Sha_su, inherit.aes=FALSE, aes(x = min(table_lm$M_diversities_shannon), y = max(table_lm$H_diversities_shannon)-0.1, label=paste("p=",round(as.numeric(Sha_su$Pr...t..[2]),3),","," ","R^2.Adj=",round(as.numeric(Sha_su$Adj.r.sq[2]),3)," "), hjust=0, vjust = 0), label.size = NA) # paste the R square and p value in the plot 
+
+plot.Sha_lmx <- plot.Sha_lm + mytheme + ggtitle("Shannon Diversity Correlation") + theme(plot.title = element_text(size = 11)) 
+
+# arrange the plots together
+div_cor <- ggarrange(plot.PD_lmx, 
+                    plot.Obs_lmx,
+                 plot.Sha_lmx,
+                    ncol = 3, nrow = 1, align = "h",
+                    labels = c("A", "B", "C"), common.legend = TRUE, legend = "right")
+
+ggsave("./Figures/Diversities_Correlations.pdf", height = 4, width = 14)
+
+div_cor
+
+```
+
+Supplementary Figure S3: Linear correlations between diversity metrics calculated for bacterial (B) 16S rRNA genes (x-axis) and halogenases (H) (y-axis).
+
+
+# Conclusion
+The plethora of previously undescribed putative flavin-dependent tryptophan halogenases from the metagenomic DNA of Mediterranean and Caribbean Aplysina species unraveled here indicates a large potential for the discovery of novel halogenating enzymes from these marine invertebrates and their associated microbiomes. The separation into four phylogenetically distinct clades of halogenase protein sequences indicates that multiple classes of organic scaffolds may be halogenated by sponge-associated microbes. High bacterial diversity was in most cases indicative of a high halogenase diversity, and while the Caribbean species shared many halogenases as well as bacterial OTUs, the Mediterranean A. aerophoba could be clearly distinguished. Based on co-occurrence, three prominent bacterial sponge symbionts belonging to the Chloroflexi and Nitrospinae were identified as potential sources of abundant halogenases. These results may thus contribute to explaining the origin of the numerous halogenated compounds discovered in Aplysina species.
+
+
+
+
+# R packages and their versions used for this analysis.
+
+```{r}
+sessionInfo()
+
+``` 
