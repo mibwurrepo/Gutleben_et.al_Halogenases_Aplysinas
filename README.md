@@ -3,7 +3,7 @@ A study investigating halogenase diversity and  microbial diversity in marine sp
 
 In this repository are all the files and codes used for reproducible data analysis.
 
-Below is a short descriptions of the files, more details can be found in Halogenase_Diversity_Final_1.html
+Below is a short descriptions of the files
 
 *Complete workflow* 
 ---
