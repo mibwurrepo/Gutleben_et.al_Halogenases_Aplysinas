@@ -12,7 +12,7 @@ Halogenase_Diversity_Final_1.Rmd -R Markdown file containing all details and ana
 
 **Microbiome data** 
 
-16S_ps.RDS                        -Phyloseq object containing 16S rRNA gene amplicon sequencing data, classified to Genus level (SILVA SSU 128 database) 
+16S_ps.RDS                        -Phyloseq object containing 16S rRNA gene amplicon sequencing data, classified to Genus level (SILVA SSU 128 database)  
 final.NG6533_OTUs.fasta           -FASTA file containing the 16S rRNA gene amplicon sequences.
 
 **Halogenase database**  
